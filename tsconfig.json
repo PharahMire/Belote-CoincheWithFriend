@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@belote/core-rules": ["packages/core-rules/src/index.ts"],
+      "@/*": ["apps/mobile/src/*"]
+    }
+  },
+  "include": [
+    "packages/core-rules/src/**/*",
+    "packages/core-rules/__tests__/**/*",
+    "apps/mobile/src/**/*"
+  ]
+}
