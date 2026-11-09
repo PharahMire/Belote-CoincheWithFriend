@@ -20,13 +20,26 @@ CREATE TABLE IF NOT EXISTS local_games (
   sync_status TEXT NOT NULL DEFAULT 'DIRTY' -- 'SYNCED' | 'DIRTY' | 'CONFLICT'
 );
 
+CREATE TABLE IF NOT EXISTS local_guests (
+  guest_id TEXT PRIMARY KEY NOT NULL,
+  display_name TEXT NOT NULL,
+  claim_code TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  linked_profile_id TEXT,
+  linked_username TEXT,
+  sync_status TEXT NOT NULL DEFAULT 'DIRTY'
+);
+
 CREATE TABLE IF NOT EXISTS local_game_participants (
   id TEXT PRIMARY KEY NOT NULL,
   game_id TEXT NOT NULL REFERENCES local_games(id) ON DELETE CASCADE,
   seat TEXT NOT NULL,
   team TEXT NOT NULL,
+  identity_type TEXT NOT NULL DEFAULT 'LOCAL_GUEST',
   profile_id TEXT,
+  guest_id TEXT REFERENCES local_guests(guest_id) ON DELETE SET NULL,
   guest_name TEXT,
+  claim_code TEXT,
   UNIQUE(game_id, seat)
 );
 

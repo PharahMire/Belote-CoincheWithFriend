@@ -278,3 +278,116 @@ describe('Phase 2 Core Entities - CardStrengthEvaluator & Session', () => {
     assert.equal(HybridLogicalClock.compare(t2, t1), 1);
   });
 });
+
+describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison Compte & Invités)', () => {
+  it('joue hors-ligne avec invités et QR Code, synchronise au retour réseau et rattache rétroactivement les parties aux vrais comptes d’amis', async () => {
+    const { BeloteAppStore } = await import(
+      '../../../apps/mobile/src/presentation/state/useAppStore.ts'
+    );
+    const { ScoreSheetPresenter } = await import(
+      '../../../apps/mobile/src/presentation/screens/ScoreSheetScreen.ts'
+    );
+    const { RoundEntryFormController } = await import(
+      '../../../apps/mobile/src/presentation/screens/RoundEntryModal.ts'
+    );
+    const { StatsDashboardPresenter } = await import(
+      '../../../apps/mobile/src/presentation/screens/StatsDashboardScreen.ts'
+    );
+
+    const appStore = new BeloteAppStore();
+
+    // 1. Sur le bateau (0 réseau) : l'utilisateur est en profil local anonyme
+    assert.equal(appStore.getState().currentUser.authStatus, 'OFFLINE_ANONYMOUS');
+    assert.equal(appStore.getState().syncStatus.connectivity, 'OFFLINE_BOAT');
+
+    // 2. Il ajoute 2 invités sans téléphone ("Lucas" et "Chloé") et scanne le QR Code hors-ligne de "Maxime"
+    const lucasGuest = appStore.createGuest('Lucas (Bateau)');
+    const chloeGuest = appStore.createGuest('Chloé (Bateau)');
+    const maximeQr = {
+      version: 1 as const,
+      profileId: 'user-maxime-uuid',
+      username: 'Maxime',
+      friendCode: 'BLT-MAX99',
+      issuedAt: 1700000000000,
+    };
+
+    // 3. Il lance une partie de Coinche sur le bateau (Sud = Moi, Nord = Lucas Invité, Est = Maxime QR, Ouest = Chloé Invitée)
+    appStore.startNewGame({
+      mode: 'COINCHE',
+      targetScore: 500,
+      seats: {
+        SOUTH: { type: 'CURRENT_USER' },
+        NORTH: { type: 'GUEST', guestId: lucasGuest.guestId },
+        EAST: { type: 'OFFLINE_QR', qrPayload: maximeQr },
+        WEST: { type: 'GUEST', guestId: chloeGuest.guestId },
+      },
+    });
+
+    // 4. Saisie de 2 donnes via le contrôleur de formulaire (avec auto-complétion sur 162)
+    const draft1 = {
+      rules: DEFAULT_COINCHE_RULES,
+      takerSeat: 'NORTH' as const, // Lucas (NS) prend à 110 Cœur Coinché
+      trump: TrumpMode.HEARTS,
+      contractType: ContractType.NORMAL,
+      contractValue: 110,
+      coincheLevel: CoincheLevel.COINCHE,
+      coincherSeat: 'EAST' as const,
+      pointsEnteredForTeam: 'NS' as const,
+      pointsEnteredValue: 120, // EW aura automatiquement 42
+      beloteTeam: 'NS' as const,
+      declarations: [],
+    };
+    const preview1 = RoundEntryFormController.previewLiveScore(draft1);
+    assert.equal(preview1.finalScoreNS, 480); // (110 + 120) * 2 + 20 belote = 480
+
+    appStore.addRoundToActiveGame('SOUTH', RoundEntryFormController.toScoreInput(draft1));
+
+    // Donne 2 : NS marque 190 -> Total NS = 670 >= 500 (Partie gagnée par NS !)
+    appStore.addRoundToActiveGame('WEST', {
+      rules: DEFAULT_COINCHE_RULES,
+      takerSeat: 'SOUTH',
+      trump: TrumpMode.SPADES,
+      contractType: ContractType.NORMAL,
+      contractValue: 90,
+      coincheLevel: CoincheLevel.NONE,
+      rawTrickPointsNS: 100,
+      rawTrickPointsEW: 62,
+    });
+
+    const activeGame = appStore.getState().activeGame!;
+    assert.equal(activeGame.status, 'COMPLETED');
+    assert.equal(activeGame.winnerTeam, 'NS');
+
+    // Vérification du ViewModel de la Feuille de Marque en mode Hors-Ligne
+    const sheetVm = ScoreSheetPresenter.buildViewModel(
+      activeGame,
+      appStore.getState().syncStatus
+    );
+    assert.equal(sheetVm.unlinkedPlayersInGame.length, 2); // Lucas & Chloé sont encore des invités non liés
+    assert.ok(sheetVm.syncBadgeLabel.includes('Hors-Ligne'));
+
+    // 5. Retour à terre ! Le capitaine lie son compte Apple/Google et synchronise automatiquement
+    const mergeRes = await appStore.signInAndMergeLocalAccount({
+      authenticatedUserId: 'auth-user-augustin',
+      username: 'Augustin',
+      email: 'augustin@example.com',
+      provider: 'APPLE',
+    });
+    assert.equal(mergeRes.migratedGamesCount, 1);
+    assert.equal(appStore.getState().syncStatus.connectivity, 'ONLINE_SYNCED');
+    assert.equal(appStore.getState().syncStatus.pendingMutationsCount, 0);
+
+    // 6. Liaison rétroactive : "Lucas (Bateau)" crée son compte (@lucas_pro) et on lie son guestId (ou claimCode)
+    const linkRes = await appStore.linkGuestToFriend({
+      claimCode: lucasGuest.claimCode,
+      targetProfileId: 'auth-user-lucas',
+      targetUsername: 'LucasPro',
+      targetFriendCode: 'BLT-LUC01',
+    });
+    assert.equal(linkRes.updatedGamesCount, 1);
+
+    // 7. Vérification que LucasPro possède désormais 100% des statistiques de ses parties jouées sur le bateau !
+    const statsVm = StatsDashboardPresenter.buildViewModel(appStore.getState().statsSummary);
+    assert.equal(statsVm.kpis[0].value, '100%'); // 1 victoire / 1 partie
+  });
+});

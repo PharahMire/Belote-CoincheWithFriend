@@ -96,7 +96,10 @@ CREATE TABLE public.game_participants (
   seat player_seat NOT NULL,
   team team_side NOT NULL,
   profile_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  guest_id UUID,
   guest_name VARCHAR(40),
+  claim_code VARCHAR(16),
+  linked_at TIMESTAMPTZ,
   CONSTRAINT uq_game_seat UNIQUE (game_id, seat),
   CONSTRAINT chk_participant_identity CHECK (
     (profile_id IS NOT NULL) OR (guest_name IS NOT NULL AND LENGTH(TRIM(guest_name)) > 0)
@@ -104,6 +107,8 @@ CREATE TABLE public.game_participants (
 );
 
 CREATE INDEX idx_game_participants_profile ON public.game_participants (profile_id);
+CREATE INDEX idx_game_participants_guest_id ON public.game_participants (guest_id);
+CREATE INDEX idx_game_participants_claim_code ON public.game_participants (claim_code);
 CREATE INDEX idx_game_participants_game ON public.game_participants (game_id);
 
 -- ==========================================
@@ -289,5 +294,38 @@ BEGIN
   END LOOP;
 
   RETURN jsonb_build_object('acknowledged_ids', v_ack_ids);
+END;
+$$;
+
+-- ==========================================
+-- 8. RPC DE LIAISON RÉTROACTIVE INVITÉ -> PROFIL UTILISATEUR
+-- Permet de rattacher toutes les parties jouées hors-ligne par un invité ("Mode Bateau")
+-- au vrai compte d'un ami une fois la connexion retrouvée (via guest_id ou claim_code).
+-- ==========================================
+CREATE OR REPLACE FUNCTION public.link_guest_to_profile(
+  p_guest_id UUID,
+  p_claim_code VARCHAR,
+  p_target_profile_id UUID
+)
+RETURNS INTEGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_updated_count INTEGER;
+BEGIN
+  UPDATE public.game_participants
+  SET
+    profile_id = p_target_profile_id,
+    linked_at  = NOW()
+  WHERE
+    profile_id IS NULL
+    AND (
+      (p_guest_id IS NOT NULL AND guest_id = p_guest_id)
+      OR (p_claim_code IS NOT NULL AND claim_code = p_claim_code)
+    );
+
+  GET DIAGNOSTICS v_updated_count = ROW_COUNT;
+  RETURN v_updated_count;
 END;
 $$;
