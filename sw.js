@@ -1,4 +1,4 @@
-const CACHE_NAME = 'belote-coinche-pwa-v2';
+const CACHE_NAME = 'belote-coinche-pwa-v3';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
@@ -46,7 +46,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-cache' })
       .then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200) {
           const cloned = networkResponse.clone();
