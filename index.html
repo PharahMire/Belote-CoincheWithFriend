@@ -1925,33 +1925,97 @@
       return headers;
     }
 
-    // S'assure que la fiche du joueur existe dans public.profiles (évite toute erreur de clé étrangère created_by)
+    // S'assure que la fiche du joueur et son vrai Code Ami (BLT-XXXXX) sont synchronisés avec public.profiles
     async function ensureMyProfileExistsInSupabase() {
-      if (!supabaseConfig.url || !supabaseConfig.anonKey || !currentUser.accessToken || !currentUser.id) return;
+      if (!supabaseConfig.url || !supabaseConfig.anonKey) return;
       try {
-        const checkRes = await fetch(
-          `${supabaseConfig.url}/rest/v1/profiles?id=eq.${encodeURIComponent(currentUser.id)}&select=*`,
-          { headers: buildSupabaseHeaders() }
-        );
-        if (checkRes.ok) {
-          const rows = await checkRes.json();
-          if (rows.length > 0) {
-            currentUser.username = rows[0].username || currentUser.username;
-            currentUser.friendCode = rows[0].friend_code || currentUser.friendCode;
-            savePersistedState();
-            return;
+        let rows = [];
+
+        // 1. Recherche par ID utilisateur Supabase
+        if (currentUser.id) {
+          const checkRes = await fetch(
+            `${supabaseConfig.url}/rest/v1/profiles?id=eq.${encodeURIComponent(currentUser.id)}&select=*`,
+            { headers: buildSupabaseHeaders() }
+          );
+          if (checkRes.ok) {
+            rows = await checkRes.json();
           }
         }
-        // Si le profil n'existe pas encore dans public.profiles, on l'insère automatiquement
-        await fetch(`${supabaseConfig.url}/rest/v1/profiles`, {
-          method: 'POST',
-          headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates' }),
-          body: JSON.stringify({
-            id: currentUser.id,
-            username: currentUser.username,
-            friend_code: currentUser.friendCode
-          })
-        });
+
+        // 2. Fallback par pseudo si le compte a été créé dans une session précédente
+        if (rows.length === 0 && currentUser.username && currentUser.username !== 'Joueur 1') {
+          const byNameRes = await fetch(
+            `${supabaseConfig.url}/rest/v1/profiles?username=ilike.${encodeURIComponent(currentUser.username)}&limit=1&select=*`,
+            { headers: buildSupabaseHeaders() }
+          );
+          if (byNameRes.ok) {
+            rows = await byNameRes.json();
+          }
+        }
+
+        if (rows.length > 0) {
+          currentUser.id = rows[0].id || currentUser.id;
+          currentUser.username = rows[0].username || currentUser.username;
+          currentUser.friendCode = rows[0].friend_code || currentUser.friendCode;
+          newGameConfig.seats.NORTH.name = currentUser.username;
+          newGameConfig.seats.NORTH.badge = `✓ ${currentUser.friendCode}`;
+          savePersistedState();
+          renderAccountTabUI();
+          renderSeatsConfigGrid();
+          return;
+        }
+
+        // 3. Si le joueur est authentifié mais que son profil n'existe pas encore dans public.profiles, on le crée
+        if (currentUser.accessToken && currentUser.id) {
+          const insertRes = await fetch(`${supabaseConfig.url}/rest/v1/profiles?select=*`, {
+            method: 'POST',
+            headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates,return=representation' }),
+            body: JSON.stringify({
+              id: currentUser.id,
+              username: currentUser.username,
+              friend_code: currentUser.friendCode
+            })
+          });
+          if (insertRes.ok) {
+            const inserted = await insertRes.json();
+            if (inserted.length > 0 && inserted[0].friend_code) {
+              currentUser.friendCode = inserted[0].friend_code;
+              newGameConfig.seats.NORTH.badge = `✓ ${currentUser.friendCode}`;
+              savePersistedState();
+              renderAccountTabUI();
+              renderSeatsConfigGrid();
+            }
+          }
+        }
+      } catch (_e) {}
+    }
+
+    // Met aussi à jour les codes amis de la liste d'amis locale depuis public.profiles
+    async function refreshCachedFriendsFromSupabase() {
+      if (!supabaseConfig.url || !supabaseConfig.anonKey || cachedFriends.length === 0) return;
+      try {
+        let updated = false;
+        for (const f of cachedFriends) {
+          if (!f.username) continue;
+          const res = await fetch(
+            `${supabaseConfig.url}/rest/v1/profiles?username=ilike.${encodeURIComponent(f.username)}&limit=1&select=id,username,friend_code`,
+            { headers: buildSupabaseHeaders() }
+          );
+          if (res.ok) {
+            const rows = await res.json();
+            if (rows.length > 0 && rows[0].friend_code && f.code !== rows[0].friend_code) {
+              f.code = rows[0].friend_code;
+              f.username = rows[0].username;
+              f.profileId = rows[0].id;
+              updated = true;
+            }
+          }
+        }
+        if (updated) {
+          savePersistedState();
+          renderAccountTabUI();
+          renderSeatsConfigGrid();
+        }
       } catch (_e) {}
     }
 
@@ -2001,7 +2065,7 @@
           body: JSON.stringify({
             email,
             password,
-            data: { username }
+            data: { username, friend_code: currentUser.friendCode }
           })
         });
 
@@ -2010,7 +2074,7 @@
           throw new Error(data.msg || data.error_description || data.message || 'Erreur d\'authentification');
         }
 
-        const userObj = data.user || data;
+        const userObj = data.user || (data.session && data.session.user) || data;
         if (userObj && userObj.id) {
           currentUser.id = userObj.id;
         }
@@ -2027,9 +2091,13 @@
           if (loginRes.ok) {
             const loginData = await loginRes.json();
             currentUser.accessToken = loginData.access_token || null;
+            if (loginData.user && loginData.user.id) {
+              currentUser.id = loginData.user.id;
+            }
           }
         }
 
+        // Récupère immédiatement le vrai friend_code créé par le trigger SQL dans public.profiles
         await ensureMyProfileExistsInSupabase();
 
         newGameConfig.seats.NORTH.name = currentUser.username;
@@ -2040,7 +2108,7 @@
 
         msgEl.textContent = `✅ Connecté : ${currentUser.username} (${currentUser.friendCode})`;
         msgEl.className = 'text-xs text-emerald-400 font-bold';
-        showToast(`✅ Connecté en tant que ${currentUser.username} !`, 'success');
+        showToast(`✅ Connecté : ${currentUser.username} (${currentUser.friendCode})`, 'success');
 
         await syncWithSupabaseNow(true);
       } catch (err) {
@@ -2077,7 +2145,12 @@
           return;
         }
         const found = rows[0];
-        if (!cachedFriends.some(f => f.code === found.friend_code)) {
+        const existingIdx = cachedFriends.findIndex(
+          f => f.code === found.friend_code || (f.username && f.username.toLowerCase() === found.username.toLowerCase())
+        );
+        if (existingIdx >= 0) {
+          cachedFriends[existingIdx] = { username: found.username, code: found.friend_code, profileId: found.id };
+        } else {
           cachedFriends.unshift({ username: found.username, code: found.friend_code, profileId: found.id });
         }
         document.getElementById('addFriendQueryInput').value = '';
@@ -2241,6 +2314,8 @@
 
     window.addEventListener('online', () => {
       updateNetworkUI();
+      ensureMyProfileExistsInSupabase();
+      refreshCachedFriendsFromSupabase();
       syncWithSupabaseNow(true);
     });
     window.addEventListener('offline', () => {
@@ -2266,6 +2341,9 @@
     renderAccountTabUI();
     updateDefaultTitlePreview();
     updateNetworkUI();
+    // Synchronise automatiquement le Code Ami officiel (BLT-XXXXX) depuis public.profiles dès l'ouverture
+    ensureMyProfileExistsInSupabase();
+    refreshCachedFriendsFromSupabase();
   </script>
 </body>
 </html>
