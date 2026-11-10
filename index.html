@@ -2851,25 +2851,28 @@
     }
 
     // Télécharge depuis Supabase toutes les parties où le joueur apparaît ET supprime localement celles supprimées sur Supabase
-    async function pullGamesFromSupabase() {
+    let lastPullGamesTimestamp = 0;
+
+    // Télécharge depuis Supabase de façon économe (uniquement les parties et donnes qui concernent le joueur)
+    async function pullGamesFromSupabase(force = false) {
       if (!isEffectivelyOnline() || !supabaseConfig.url || !supabaseConfig.anonKey) return 0;
 
-      try {
-        const [gamesRes, partsRes, roundsRes] = await Promise.all([
-          supabaseFetch(`${supabaseConfig.url}/rest/v1/games?is_deleted=eq.false&order=started_at.desc&limit=1000`),
-          supabaseFetch(`${supabaseConfig.url}/rest/v1/game_participants?select=*`),
-          supabaseFetch(`${supabaseConfig.url}/rest/v1/game_rounds?is_deleted=eq.false&order=round_number.asc`)
-        ]);
+      const now = Date.now();
+      if (!force && (now - lastPullGamesTimestamp < 15000)) {
+        return 0;
+      }
+      lastPullGamesTimestamp = now;
 
+      try {
+        // 1. Récupère la liste des parties récentes
+        const gamesRes = await supabaseFetch(
+          `${supabaseConfig.url}/rest/v1/games?is_deleted=eq.false&order=started_at.desc&limit=100`
+        );
         if (!gamesRes.ok) return 0;
         const cloudGames = await gamesRes.json();
         if (!Array.isArray(cloudGames)) return 0;
-        const allParts = partsRes.ok ? await partsRes.json() : [];
-        const allRounds = roundsRes.ok ? await roundsRes.json() : [];
 
-        // 1. Nettoyage automatique (uniquement en ligne quand Supabase répond) :
-        // si une partie déjà synchronisée ('SYNCED') a été supprimée dans la base Supabase, on la retire du cache local.
-        // Hors ligne, cette fonction s'arrête plus haut et toutes les parties restent visibles dans l'application.
+        // Nettoyage automatique des parties supprimées sur Supabase
         const cloudGameIds = new Set(cloudGames.map(cg => cg.id));
         gamesDatabase = gamesDatabase.filter(loc => {
           if (loc.syncStatus === 'SYNCED' && !cloudGameIds.has(loc.id)) {
@@ -2878,15 +2881,49 @@
           return true;
         });
 
+        // 2. Détecter les parties où le joueur intervient
+        const myPartFilter = [];
+        if (currentUser.id) myPartFilter.push(`profile_id.eq.${encodeURIComponent(currentUser.id)}`);
+        if (currentUser.friendCode) myPartFilter.push(`claim_code.eq.${encodeURIComponent(currentUser.friendCode)}`);
+        if (currentUser.username && currentUser.username !== 'Joueur 1') myPartFilter.push(`guest_name.ilike.${encodeURIComponent(currentUser.username)}`);
+
+        let myPartGameIds = new Set();
+        if (myPartFilter.length > 0) {
+          const pRes = await supabaseFetch(
+            `${supabaseConfig.url}/rest/v1/game_participants?or=(${myPartFilter.join(',')})&select=game_id`
+          );
+          if (pRes.ok) {
+            const pRows = await pRes.json();
+            if (Array.isArray(pRows)) pRows.forEach(r => myPartGameIds.add(r.game_id));
+          }
+        }
+
+        const relevantCloudGames = cloudGames.filter(cg => {
+          if (myPartGameIds.has(cg.id)) return true;
+          const { players, seatMeta } = extractPlayersAndSeatMetaFromCloudGame(cg, []);
+          return doesCloudGameInvolveCurrentUser(cg, players, seatMeta, []);
+        });
+
+        // 3. Télécharger UNIQUEMENT les donnes et participants des parties concernées (évite de télécharger toute la DB)
+        const relevantIds = relevantCloudGames.map(cg => cg.id);
+        let allParts = [];
+        let allRounds = [];
+
+        if (relevantIds.length > 0) {
+          const idList = relevantIds.slice(0, 30).map(encodeURIComponent).join(',');
+          const [partsRes, roundsRes] = await Promise.all([
+            supabaseFetch(`${supabaseConfig.url}/rest/v1/game_participants?game_id=in.(${idList})&select=*`),
+            supabaseFetch(`${supabaseConfig.url}/rest/v1/game_rounds?game_id=in.(${idList})&is_deleted=eq.false&order=round_number.asc`)
+          ]);
+          allParts = partsRes.ok ? await partsRes.json() : [];
+          allRounds = roundsRes.ok ? await roundsRes.json() : [];
+        }
+
         let pulledCount = 0;
 
-        for (const cg of cloudGames) {
+        for (const cg of relevantCloudGames) {
           const partRows = allParts.filter(p => p.game_id === cg.id);
           const { players, seatMeta } = extractPlayersAndSeatMetaFromCloudGame(cg, partRows);
-
-          if (!doesCloudGameInvolveCurrentUser(cg, players, seatMeta, partRows)) {
-            continue;
-          }
 
           const dbRoundRows = allRounds.filter(r => r.game_id === cg.id);
           let mappedRounds = dbRoundRows.map(mapCloudRoundToLocal);
@@ -2897,6 +2934,8 @@
               num: 1,
               dealerSeat: 'NORTH',
               taker: (cg.score_ns || 0) >= (cg.score_ew || 0) ? 'NS' : 'EW',
+              takerSeat: null,
+              annList: [],
               suit: 'SPADES',
               contractType: 'NUMBER',
               contractVal: 100,
@@ -2990,12 +3029,14 @@
       if (showUserFeedback) showToast('🔄 Synchronisation avec Supabase en cours...', 'info');
 
       try {
-        // 1. S'assurer que le profil et les amis sont synchronisés
-        await ensureMyProfileExistsInSupabase();
-        await syncFriendshipsWithSupabase();
+        // 1. Synchroniser le profil et les amis uniquement si nécessaire ou demandé explicitement
+        if (!currentUser.friendCode || currentUser.friendCode === 'BLT-0000' || showUserFeedback) {
+          await ensureMyProfileExistsInSupabase();
+          await syncFriendshipsWithSupabase();
+        }
 
-        // 2. Nettoyer d'abord les parties qui ont été supprimées sur Supabase (via pullGamesFromSupabase)
-        await pullGamesFromSupabase();
+        // 2. Nettoyer d'abord les parties qui ont été supprimées sur Supabase
+        await pullGamesFromSupabase(true);
 
         // Récupérer la liste des IDs de profils valides dans public.profiles pour garantir l'intégrité des clés étrangères
         const validProfileIds = new Set();
@@ -3126,40 +3167,52 @@
             });
           }
 
-          // Synchroniser chaque donne dans public.game_rounds
-          for (const r of g.rounds) {
-            r.id = r.id || generateUuid();
-            const roundRow = {
-              id: r.id,
-              game_id: g.id,
-              round_number: r.num,
-              dealer_seat: r.dealerSeat || 'NORTH',
-              taker_seat: r.takerSeat || (r.taker === 'NS' ? 'NORTH' : 'EAST'),
-              taker_team: r.taker,
-              trump: r.suit,
-              contract_type: r.contractType === 'CAPOT_BELOTE' ? 'CAPOT' : (r.contractType === 'NUMBER' ? 'NORMAL' : r.contractType),
-              contract_value: r.contractVal,
-              coinche_status: r.mult === 4 ? 'SURCOINCHE' : r.mult === 2 ? 'COINCHE' : 'NONE',
-              raw_trick_points_ns: Math.min(162, r.ptsNS),
-              raw_trick_points_ew: Math.min(162, r.ptsEW),
-              is_capot_achieved: r.ptsNS === 252 || r.ptsEW === 252,
-              capot_team: r.ptsNS === 252 ? 'NS' : r.ptsEW === 252 ? 'EW' : null,
-              belote_team: r.beloteBy === 'NONE' ? null : r.beloteBy,
-              announcements_ns: (r.annList || []).filter(a => a.team === 'NS'),
-              announcements_ew: (r.annList || []).filter(a => a.team === 'EW'),
-              announcement_points_ns: r.annNS || 0,
-              announcement_points_ew: r.annEW || 0,
-              is_contract_fulfilled: Boolean(r.isSuccess),
-              final_points_ns: r.scoreNS,
-              final_points_ew: r.scoreEW,
-              client_hlc: hlc
-            };
+          // Synchroniser les donnes en un seul envoi groupé (batch) économe en réseau
+          if (g.rounds.length > 0) {
+            const allRoundRows = g.rounds.map(r => {
+              r.id = r.id || generateUuid();
+              return {
+                id: r.id,
+                game_id: g.id,
+                round_number: r.num,
+                dealer_seat: r.dealerSeat || 'NORTH',
+                taker_seat: r.takerSeat || (r.taker === 'NS' ? 'NORTH' : 'EAST'),
+                taker_team: r.taker,
+                trump: r.suit,
+                contract_type: r.contractType === 'CAPOT_BELOTE' ? 'CAPOT' : (r.contractType === 'NUMBER' ? 'NORMAL' : r.contractType),
+                contract_value: r.contractVal,
+                coinche_status: r.mult === 4 ? 'SURCOINCHE' : r.mult === 2 ? 'COINCHE' : 'NONE',
+                raw_trick_points_ns: Math.min(162, r.ptsNS),
+                raw_trick_points_ew: Math.min(162, r.ptsEW),
+                is_capot_achieved: r.ptsNS === 252 || r.ptsEW === 252,
+                capot_team: r.ptsNS === 252 ? 'NS' : r.ptsEW === 252 ? 'EW' : null,
+                belote_team: r.beloteBy === 'NONE' ? null : r.beloteBy,
+                announcements_ns: (r.annList || []).filter(a => a.team === 'NS'),
+                announcements_ew: (r.annList || []).filter(a => a.team === 'EW'),
+                announcement_points_ns: r.annNS || 0,
+                announcement_points_ew: r.annEW || 0,
+                is_contract_fulfilled: Boolean(r.isSuccess),
+                final_points_ns: r.scoreNS,
+                final_points_ew: r.scoreEW,
+                client_hlc: hlc
+              };
+            });
 
-            await supabaseFetch(`${supabaseConfig.url}/rest/v1/game_rounds?on_conflict=game_id,round_number`, {
+            const roundsRes = await supabaseFetch(`${supabaseConfig.url}/rest/v1/game_rounds?on_conflict=game_id,round_number`, {
               method: 'POST',
               headers: { Prefer: 'resolution=merge-duplicates' },
-              body: JSON.stringify(roundRow)
+              body: JSON.stringify(allRoundRows)
             });
+
+            if (!roundsRes.ok) {
+              for (const roundRow of allRoundRows) {
+                await supabaseFetch(`${supabaseConfig.url}/rest/v1/game_rounds?on_conflict=game_id,round_number`, {
+                  method: 'POST',
+                  headers: { Prefer: 'resolution=merge-duplicates' },
+                  body: JSON.stringify(roundRow)
+                });
+              }
+            }
           }
 
           g.syncStatus = 'SYNCED';
@@ -3230,7 +3283,7 @@
     (async () => {
       await ensureMyProfileExistsInSupabase();
       await syncFriendshipsWithSupabase();
-      await pullGamesFromSupabase();
+      await pullGamesFromSupabase(true);
     })();
   </script>
 </body>
