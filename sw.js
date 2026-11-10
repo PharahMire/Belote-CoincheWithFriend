@@ -1,4 +1,4 @@
-const CACHE_NAME = 'belote-coinche-pwa-v1';
+const CACHE_NAME = 'belote-coinche-pwa-v2';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
@@ -6,23 +6,19 @@ const APP_SHELL_ASSETS = [
   'https://cdn.tailwindcss.com'
 ];
 
-// Installation : mise en cache immédiate de la coquille applicative (App Shell)
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then(async (cache) => {
       for (const url of APP_SHELL_ASSETS) {
         try {
           await cache.add(url);
-        } catch (_err) {
-          // Ignore les erreurs CDN optionnelles lors de l'installation
-        }
+        } catch (_err) {}
       }
     })
   );
   self.skipWaiting();
 });
 
-// Activation : nettoyage des anciens caches
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
@@ -36,9 +32,8 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Interception réseau :
-// - Les appels API Supabase (/rest/v1, /auth/v1) passent toujours par le réseau
-// - Les fichiers de l'application utilisent Cache-First avec mise à jour en arrière-plan (Stale-While-Revalidate)
+// Network-First pour index.html afin d'avoir toujours la dernière version quand on est en ligne,
+// et fallback immédiat sur le cache quand on est hors-ligne (Mode Avion / Bateau).
 self.addEventListener('fetch', (event) => {
   const reqUrl = event.request.url;
 
@@ -51,20 +46,18 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const networkFetch = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            const cloned = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, cloned);
-            });
-          }
-          return networkResponse;
-        })
-        .catch(() => cachedResponse || caches.match('./index.html'));
-
-      return cachedResponse || networkFetch;
-    })
+    fetch(event.request)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const cloned = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, cloned);
+          });
+        }
+        return networkResponse;
+      })
+      .catch(() =>
+        caches.match(event.request).then((cached) => cached || caches.match('./index.html'))
+      )
   );
 });
