@@ -47,6 +47,27 @@ export class StatsDashboardPresenter {
       ],
       capotsAchieved: stats.capotsAchieved,
       trumpBreakdown,
+      rivalries: {
+        mostWinsAgainst: stats.mostWinsAgainst
+          ? {
+              name: stats.mostWinsAgainst.displayName,
+              summary: `${stats.mostWinsAgainst.wins}V / ${stats.mostWinsAgainst.gamesTogetherOrAgainst} parties (${stats.mostWinsAgainst.winRatePct}%)`,
+            }
+          : undefined,
+        mostLossesAgainst: stats.mostLossesAgainst
+          ? {
+              name: stats.mostLossesAgainst.displayName,
+              summary: `${stats.mostLossesAgainst.losses}D / ${stats.mostLossesAgainst.gamesTogetherOrAgainst} parties`,
+            }
+          : undefined,
+        bestPartner: stats.bestPartner
+          ? {
+              name: stats.bestPartner.displayName,
+              summary: `${stats.bestPartner.wins}V / ${stats.bestPartner.gamesTogetherOrAgainst} parties (${stats.bestPartner.winRatePct}%)`,
+            }
+          : undefined,
+        opponentMatchups: stats.opponentMatchups,
+      },
     };
   }
 }

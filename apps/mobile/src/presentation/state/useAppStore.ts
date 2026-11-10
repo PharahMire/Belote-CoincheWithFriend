@@ -24,6 +24,7 @@ import type {
 
 export type ActiveTabScreen =
   | 'SCOREBOARD'
+  | 'GAMES_HISTORY'
   | 'NEW_GAME'
   | 'GUEST_LINKING'
   | 'STATS'
@@ -46,7 +47,8 @@ export interface AppViewModelState {
 export class BeloteAppStore {
   private readonly repo: OfflineFirstGameRepository;
   private readonly syncCoordinator: LifecycleSyncCoordinator;
-  private activeScreen: ActiveTabScreen = 'NEW_GAME';
+  /** Le mode Feuille de Marque (SCOREBOARD) est l'écran principal par défaut */
+  private activeScreen: ActiveTabScreen = 'SCOREBOARD';
   private activeGameId?: string;
   private statsModeFilter: GameMode | 'ALL' = 'ALL';
   private readonly listeners = new Set<(state: AppViewModelState) => void>();
@@ -89,6 +91,13 @@ export class BeloteAppStore {
 
   public navigateTo(screen: ActiveTabScreen): void {
     this.activeScreen = screen;
+    this.notify();
+  }
+
+  /** Permet d'ouvrir n'importe quelle partie depuis l'Historique des Parties dans la Feuille de Marque */
+  public selectGameFromHistory(gameId: string): void {
+    this.activeGameId = gameId;
+    this.activeScreen = 'SCOREBOARD';
     this.notify();
   }
 

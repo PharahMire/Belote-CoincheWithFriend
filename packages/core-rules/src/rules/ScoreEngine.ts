@@ -84,6 +84,9 @@ export interface RoundScoreResult {
   readonly isLitige: boolean; // Cas 81 - 81 en Belote classique
   readonly normalizedTrickPointsNS: number;
   readonly normalizedTrickPointsEW: number;
+  /** Libellé d'affichage des plis : 'Capot', 'Capot B', 'Générale' ou les points numériques */
+  readonly trickDisplayNS: string;
+  readonly trickDisplayEW: string;
   readonly belotePointsNS: number;
   readonly belotePointsEW: number;
   readonly announcementPointsNS: number;
@@ -200,6 +203,12 @@ export class ScoreEngine {
       explanation = `Dedans ! ${takerTeam} chute (${takerEval} contre ${defenderEval}). ${defenderTeam} ramasse ${totalTrickPool} pts.`;
     }
 
+    const { trickDisplayNS, trickDisplayEW } = this.computeTrickDisplayLabels(
+      input,
+      trickNS,
+      trickEW
+    );
+
     return {
       takerTeam,
       defenderTeam,
@@ -207,6 +216,8 @@ export class ScoreEngine {
       isLitige,
       normalizedTrickPointsNS: trickNS,
       normalizedTrickPointsEW: trickEW,
+      trickDisplayNS,
+      trickDisplayEW,
       belotePointsNS: beloteNS,
       belotePointsEW: beloteEW,
       announcementPointsNS: annNS,
@@ -236,14 +247,28 @@ export class ScoreEngine {
     const { trickNS, trickEW } = this.normalizeTrickPoints(input);
 
     // 2. Belote-Rebelote (Uniquement s'il y a un atout : pas de Belote à Sans-Atout)
+    // Si Capot Beloté annoncé par le preneur et non renseigné, la Belote est implicite pour le preneur si capot réussi
+    const effectiveBeloteTeam =
+      input.beloteTeam ??
+      (input.contractType === ContractType.CAPOT_BELOTE &&
+      input.capotAchievedBy === takerTeam
+        ? takerTeam
+        : undefined);
+
     const canHaveBelote = input.trump !== TrumpMode.NO_TRUMP;
-    const beloteNS = canHaveBelote && input.beloteTeam === 'NS' ? this.BELOTE_BONUS : 0;
-    const beloteEW = canHaveBelote && input.beloteTeam === 'EW' ? this.BELOTE_BONUS : 0;
+    const beloteNS =
+      canHaveBelote && effectiveBeloteTeam === 'NS' ? this.BELOTE_BONUS : 0;
+    const beloteEW =
+      canHaveBelote && effectiveBeloteTeam === 'EW' ? this.BELOTE_BONUS : 0;
 
     // 3. Résolution des annonces (Tierce, 50, 100, Carrés)
     const { pointsNS: annNS, pointsEW: annEW, winningTeam: annWinner } =
       input.rules.enableAnnouncements && input.trump !== TrumpMode.NO_TRUMP
-        ? this.resolveAnnouncements(input.declarations ?? [], input.trump, input.capotAchievedBy)
+        ? this.resolveAnnouncements(
+            input.declarations ?? [],
+            input.trump,
+            input.capotAchievedBy
+          )
         : { pointsNS: 0, pointsEW: 0, winningTeam: undefined };
 
     // 4. Vérification de la réussite du contrat
@@ -263,20 +288,26 @@ export class ScoreEngine {
 
     if (input.contractType === ContractType.GENERALE) {
       isContractFulfilled =
-        input.capotAchievedBy === takerTeam && input.generaleAchievedByTaker === true;
+        input.capotAchievedBy === takerTeam &&
+        input.generaleAchievedByTaker === true;
+    } else if (input.contractType === ContractType.CAPOT_BELOTE) {
+      isContractFulfilled =
+        input.capotAchievedBy === takerTeam && takerBelote === this.BELOTE_BONUS;
     } else if (input.contractType === ContractType.CAPOT) {
       isContractFulfilled = input.capotAchievedBy === takerTeam;
     } else {
       const reachesContract = contractPointsForValidation >= input.contractValue;
       const hasMajority =
-        contractPointsForValidation > defenderTrickPoints + defenderBelote + defenderAnn;
+        contractPointsForValidation >
+        defenderTrickPoints + defenderBelote + defenderAnn;
       isContractFulfilled = reachesContract && hasMajority;
     }
 
     const nominalContractValue =
       input.contractType === ContractType.GENERALE
         ? this.GENERALE_CONTRACT_BONUS_COINCHE
-        : input.contractType === ContractType.CAPOT
+        : input.contractType === ContractType.CAPOT ||
+          input.contractType === ContractType.CAPOT_BELOTE
         ? this.CAPOT_CONTRACT_BONUS_COINCHE
         : input.contractValue;
 
@@ -301,14 +332,24 @@ export class ScoreEngine {
               ? defenderBelote
               : defenderTrickPoints + defenderAnn + defenderBelote;
         } else {
-          takerFinal = nominalContractValue + takerTrickPoints + takerAnn + takerBelote;
+          takerFinal =
+            nominalContractValue + takerTrickPoints + takerAnn + takerBelote;
           defenderFinal =
             input.capotAchievedBy === takerTeam
               ? defenderBelote
               : defenderTrickPoints + defenderAnn + defenderBelote;
         }
       }
-      explanation = `Contrat ${nominalContractValue} (${input.trump}) réussi par ${takerTeam}${
+      const contractLabel =
+        input.contractType === ContractType.CAPOT_BELOTE
+          ? 'Capot Beloté'
+          : input.contractType === ContractType.CAPOT
+          ? 'Capot'
+          : input.contractType === ContractType.GENERALE
+          ? 'Générale'
+          : String(nominalContractValue);
+
+      explanation = `Contrat ${contractLabel} (${input.trump}) réussi par ${takerTeam}${
         multiplier > 1 ? ` [x${multiplier}]` : ''
       }.`;
     } else {
@@ -332,6 +373,12 @@ export class ScoreEngine {
     const finalNS = takerTeam === 'NS' ? takerFinal : defenderFinal;
     const finalEW = takerTeam === 'EW' ? takerFinal : defenderFinal;
 
+    const { trickDisplayNS, trickDisplayEW } = this.computeTrickDisplayLabels(
+      { ...input, beloteTeam: effectiveBeloteTeam },
+      trickNS,
+      trickEW
+    );
+
     return {
       takerTeam,
       defenderTeam,
@@ -339,6 +386,8 @@ export class ScoreEngine {
       isLitige: false,
       normalizedTrickPointsNS: trickNS,
       normalizedTrickPointsEW: trickEW,
+      trickDisplayNS,
+      trickDisplayEW,
       belotePointsNS: beloteNS,
       belotePointsEW: beloteEW,
       announcementPointsNS: annNS,
@@ -347,6 +396,51 @@ export class ScoreEngine {
       finalScoreNS: this.applyRounding(finalNS, input.rules.scoringStyle),
       finalScoreEW: this.applyRounding(finalEW, input.rules.scoringStyle),
       breakdownExplanation: explanation,
+    };
+  }
+
+  private static computeTrickDisplayLabels(
+    input: RoundScoreInput,
+    trickNS: number,
+    trickEW: number
+  ): { trickDisplayNS: string; trickDisplayEW: string } {
+    if (input.capotAchievedBy === 'NS') {
+      const isGenerale =
+        input.contractType === ContractType.GENERALE &&
+        input.generaleAchievedByTaker === true;
+      const isCapotBelote =
+        input.contractType === ContractType.CAPOT_BELOTE ||
+        input.beloteTeam === 'NS';
+      return {
+        trickDisplayNS: isGenerale
+          ? 'Générale'
+          : isCapotBelote
+          ? 'Capot B'
+          : 'Capot',
+        trickDisplayEW: '0',
+      };
+    }
+
+    if (input.capotAchievedBy === 'EW') {
+      const isGenerale =
+        input.contractType === ContractType.GENERALE &&
+        input.generaleAchievedByTaker === true;
+      const isCapotBelote =
+        input.contractType === ContractType.CAPOT_BELOTE ||
+        input.beloteTeam === 'EW';
+      return {
+        trickDisplayNS: '0',
+        trickDisplayEW: isGenerale
+          ? 'Générale'
+          : isCapotBelote
+          ? 'Capot B'
+          : 'Capot',
+      };
+    }
+
+    return {
+      trickDisplayNS: String(trickNS),
+      trickDisplayEW: String(trickEW),
     };
   }
 

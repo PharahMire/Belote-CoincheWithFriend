@@ -57,6 +57,15 @@ export interface GameRecord {
   readonly syncStatus: 'SYNCED' | 'DIRTY';
 }
 
+export interface PlayerRelationStat {
+  readonly playerId: string;
+  readonly displayName: string;
+  readonly gamesTogetherOrAgainst: number;
+  readonly wins: number;
+  readonly losses: number;
+  readonly winRatePct: number;
+}
+
 export interface PlayerStatsSummary {
   readonly profileOrGuestId: string;
   readonly mode: GameMode | 'ALL';
@@ -75,4 +84,12 @@ export interface PlayerStatsSummary {
   readonly winRateByTrump: Readonly<
     Record<TrumpMode, { taken: number; succeeded: number; winRatePct: number }>
   >;
+  /** Adversaire contre qui on a le plus gagné ("Proie favorite") */
+  readonly mostWinsAgainst?: PlayerRelationStat;
+  /** Adversaire contre qui on a le plus perdu ("Bête noire / Némésis") */
+  readonly mostLossesAgainst?: PlayerRelationStat;
+  /** Partenaire avec qui on a le plus gagné ("Allié fétiche") */
+  readonly bestPartner?: PlayerRelationStat;
+  /** Détail complet des confrontations contre chaque adversaire */
+  readonly opponentMatchups: readonly PlayerRelationStat[];
 }

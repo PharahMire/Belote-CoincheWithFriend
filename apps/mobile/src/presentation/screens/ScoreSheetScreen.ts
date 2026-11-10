@@ -18,10 +18,12 @@ export interface ScoreSheetViewModel {
     guestId?: string;
     claimCode?: string;
   }>;
-  readonly roundsRows: ReadonlyArray<{
+    roundsRows: ReadonlyArray<{
     roundNumber: number;
     contractSummary: string;
     statusBadge: 'RÉUSSI' | 'CHUTE' | 'LITIGE';
+    trickDisplayNS: string;
+    trickDisplayEW: string;
     scoreNS: number;
     scoreEW: number;
     cumulativeNS: number;
@@ -30,7 +32,49 @@ export interface ScoreSheetViewModel {
   }>;
 }
 
+export interface GameHistoryItemViewModel {
+  readonly gameId: string;
+  readonly title: string;
+  readonly modeLabel: string;
+  readonly statusLabel: 'EN COURS' | 'TERMINÉE';
+  readonly scoreSummary: string;
+  readonly winnerLabel?: string;
+  readonly roundsCount: number;
+  readonly syncBadge: '☁️ Sync' | '⏳ Local';
+}
+
 export class ScoreSheetPresenter {
+  public static buildGamesHistoryList(
+    games: readonly GameRecord[]
+  ): GameHistoryItemViewModel[] {
+    return games.map((g, idx) => {
+      const nsNames = g.participants
+        .filter((p) => p.team === 'NS')
+        .map((p) => p.displayName)
+        .join(' & ');
+      const ewNames = g.participants
+        .filter((p) => p.team === 'EW')
+        .map((p) => p.displayName)
+        .join(' & ');
+
+      return {
+        gameId: g.id,
+        title: `Partie #${games.length - idx} : ${nsNames} vs ${ewNames}`,
+        modeLabel: g.mode === 'BELOTE_CLASSIC' ? 'Belote' : 'Coinche',
+        statusLabel: g.status === 'COMPLETED' ? 'TERMINÉE' : 'EN COURS',
+        scoreSummary: `${g.scoreNS} - ${g.scoreEW}`,
+        winnerLabel:
+          g.winnerTeam === 'NS'
+            ? `Victoire ${nsNames}`
+            : g.winnerTeam === 'EW'
+            ? `Victoire ${ewNames}`
+            : undefined,
+        roundsCount: g.rounds.length,
+        syncBadge: g.syncStatus === 'SYNCED' ? '☁️ Sync' : '⏳ Local',
+      };
+    });
+  }
+
   public static buildViewModel(
     game: GameRecord,
     syncStatus: SyncLifecycleStatus
@@ -67,10 +111,19 @@ export class ScoreSheetPresenter {
           ? ' ⚡ Coinché (x2)'
           : '';
 
+      const contractName =
+        r.input.contractType === 'CAPOT_BELOTE'
+          ? 'Capot Beloté'
+          : r.input.contractType === 'CAPOT'
+          ? 'Capot'
+          : r.input.contractType === 'GENERALE'
+          ? 'Générale'
+          : String(r.input.contractValue);
+
       const contractSummary =
         game.mode === 'BELOTE_CLASSIC'
           ? `Prise ${r.result.takerTeam} (${r.input.trump})`
-          : `${r.result.takerTeam} : ${r.input.contractValue} ${r.input.trump}${coincheSuffix}`;
+          : `${r.result.takerTeam} : ${contractName} ${r.input.trump}${coincheSuffix}`;
 
       const statusBadge: 'RÉUSSI' | 'CHUTE' | 'LITIGE' = r.result.isLitige
         ? 'LITIGE'
@@ -82,6 +135,8 @@ export class ScoreSheetPresenter {
         roundNumber: r.roundNumber,
         contractSummary,
         statusBadge,
+        trickDisplayNS: r.result.trickDisplayNS,
+        trickDisplayEW: r.result.trickDisplayEW,
         scoreNS: r.result.finalScoreNS,
         scoreEW: r.result.finalScoreEW,
         cumulativeNS: runningNS,

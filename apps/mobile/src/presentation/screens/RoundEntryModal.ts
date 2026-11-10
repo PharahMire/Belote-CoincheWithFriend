@@ -28,9 +28,21 @@ export interface RoundEntryDraft {
   readonly declarations: readonly DeclaredAnnouncement[];
 }
 
+export interface TrickBarDisplayState {
+  readonly rawTrickPointsNS: number;
+  readonly rawTrickPointsEW: number;
+  /** Affiche 'Capot', 'Capot B', 'Générale' ou le nombre de points (0..162) */
+  readonly displayLabelNS: string;
+  readonly displayLabelEW: string;
+  /** Pourcentage de remplissage de la barre de score des plis (0..100%) */
+  readonly barFillPctNS: number;
+  readonly barFillPctEW: number;
+}
+
 /**
  * Aide à la saisie rapide sur mobile (Feuille de Marque Belote & Coinche) :
  * - Complète automatiquement les points de l'équipe adverse sur 162 (`162 - pointsSaisis`).
+ * - Remplit la barre à 100% et affiche 'Capot', 'Capot B' ou 'Générale' lorsque l'un de ces contrats/résultats est réalisé.
  * - Calcule en temps réel l'aperçu du score (Réussi / Dedans / Chute Coinche) avant validation.
  */
 export class RoundEntryFormController {
@@ -38,24 +50,67 @@ export class RoundEntryFormController {
     80, 90, 100, 110, 120, 130, 140, 150, 160,
   ] as const;
 
+  public static readonly SPECIAL_CONTRACTS = [
+    { type: ContractType.CAPOT, label: 'Capot (250)' },
+    { type: ContractType.CAPOT_BELOTE, label: 'Capot Beloté (250+20)' },
+    { type: ContractType.GENERALE, label: 'Générale (500)' },
+  ] as const;
+
   public static computeAutoComplementPoints(
     enteredTeam: TeamSide,
     enteredValue: number,
-    capotAchievedBy?: TeamSide
-  ): { rawTrickPointsNS: number; rawTrickPointsEW: number } {
+    capotAchievedBy?: TeamSide,
+    contractType: ContractType = ContractType.NORMAL,
+    beloteTeam?: TeamSide,
+    generaleAchievedByTaker?: boolean
+  ): TrickBarDisplayState {
     if (capotAchievedBy === 'NS') {
-      return { rawTrickPointsNS: 162, rawTrickPointsEW: 0 };
+      const specialLabel =
+        contractType === ContractType.GENERALE && generaleAchievedByTaker
+          ? 'Générale'
+          : contractType === ContractType.CAPOT_BELOTE || beloteTeam === 'NS'
+          ? 'Capot B'
+          : 'Capot';
+      return {
+        rawTrickPointsNS: 162,
+        rawTrickPointsEW: 0,
+        displayLabelNS: specialLabel,
+        displayLabelEW: '0',
+        barFillPctNS: 100,
+        barFillPctEW: 0,
+      };
     }
+
     if (capotAchievedBy === 'EW') {
-      return { rawTrickPointsNS: 0, rawTrickPointsEW: 162 };
+      const specialLabel =
+        contractType === ContractType.GENERALE && generaleAchievedByTaker
+          ? 'Générale'
+          : contractType === ContractType.CAPOT_BELOTE || beloteTeam === 'EW'
+          ? 'Capot B'
+          : 'Capot';
+      return {
+        rawTrickPointsNS: 0,
+        rawTrickPointsEW: 162,
+        displayLabelNS: '0',
+        displayLabelEW: specialLabel,
+        barFillPctNS: 0,
+        barFillPctEW: 100,
+      };
     }
 
     const clamped = Math.max(0, Math.min(162, Math.round(enteredValue)));
     const complement = 162 - clamped;
+    const ns = enteredTeam === 'NS' ? clamped : complement;
+    const ew = enteredTeam === 'NS' ? complement : clamped;
 
-    return enteredTeam === 'NS'
-      ? { rawTrickPointsNS: clamped, rawTrickPointsEW: complement }
-      : { rawTrickPointsNS: complement, rawTrickPointsEW: clamped };
+    return {
+      rawTrickPointsNS: ns,
+      rawTrickPointsEW: ew,
+      displayLabelNS: String(ns),
+      displayLabelEW: String(ew),
+      barFillPctNS: Math.round((ns / 162) * 100),
+      barFillPctEW: Math.round((ew / 162) * 100),
+    };
   }
 
   public static toScoreInput(draft: RoundEntryDraft): RoundScoreInput {
@@ -63,7 +118,10 @@ export class RoundEntryFormController {
       this.computeAutoComplementPoints(
         draft.pointsEnteredForTeam,
         draft.pointsEnteredValue,
-        draft.capotAchievedBy
+        draft.capotAchievedBy,
+        draft.contractType,
+        draft.beloteTeam,
+        draft.generaleAchievedByTaker
       );
 
     return {
@@ -74,7 +132,8 @@ export class RoundEntryFormController {
       contractValue:
         draft.contractType === ContractType.GENERALE
           ? 500
-          : draft.contractType === ContractType.CAPOT
+          : draft.contractType === ContractType.CAPOT ||
+            draft.contractType === ContractType.CAPOT_BELOTE
           ? 250
           : draft.contractValue,
       coincheLevel: draft.coincheLevel,

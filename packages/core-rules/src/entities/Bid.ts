@@ -1,9 +1,10 @@
 import { TrumpMode, type PlayerSeat } from './Card.ts';
 
 export enum ContractType {
-  NORMAL = 'NORMAL',     // Contrat chiffré (80 à 160) ou prise Belote simple
-  CAPOT = 'CAPOT',       // 8 plis promis par l'équipe (250 pts en Coinche, 252 en Belote)
-  GENERALE = 'GENERALE', // 8 plis promis par un joueur seul (500 pts en Coinche)
+  NORMAL = 'NORMAL',             // Contrat chiffré (80 à 160) ou prise Belote simple
+  CAPOT = 'CAPOT',               // 8 plis promis par l'équipe (250 pts en Coinche, 252 en Belote)
+  CAPOT_BELOTE = 'CAPOT_BELOTE', // Capot Beloté annoncé (8 plis + Belote-Rebelote obligatoire)
+  GENERALE = 'GENERALE',         // 8 plis promis par un joueur seul (500 pts en Coinche)
 }
 
 export enum CoincheLevel {

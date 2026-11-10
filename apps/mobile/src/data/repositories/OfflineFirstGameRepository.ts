@@ -476,6 +476,15 @@ export class OfflineFirstGameRepository {
     let coinchesSucceeded = 0;
     let capotsAchieved = 0;
 
+    const opponentsMap = new Map<
+      string,
+      { displayName: string; games: number; wins: number; losses: number }
+    >();
+    const partnersMap = new Map<
+      string,
+      { displayName: string; games: number; wins: number; losses: number }
+    >();
+
     for (const game of this.games.values()) {
       if (modeFilter !== 'ALL' && game.mode !== modeFilter) continue;
 
@@ -485,10 +494,33 @@ export class OfflineFirstGameRepository {
       );
       if (!participant) continue;
 
-      if (game.status === 'COMPLETED') {
+      if (game.status === 'COMPLETED' && game.winnerTeam) {
         gamesPlayed += 1;
-        if (game.winnerTeam === participant.team) {
+        const didWin = game.winnerTeam === participant.team;
+        if (didWin) {
           gamesWon += 1;
+        }
+
+        for (const other of game.participants) {
+          if (other.seat === participant.seat) continue;
+          const otherKey = other.profileId ?? other.guestId ?? other.displayName;
+          const targetMap =
+            other.team === participant.team ? partnersMap : opponentsMap;
+
+          const existing = targetMap.get(otherKey) ?? {
+            displayName: other.displayName,
+            games: 0,
+            wins: 0,
+            losses: 0,
+          };
+          existing.displayName = other.displayName;
+          existing.games += 1;
+          if (didWin) {
+            existing.wins += 1;
+          } else {
+            existing.losses += 1;
+          }
+          targetMap.set(otherKey, existing);
         }
       }
 
@@ -527,6 +559,40 @@ export class OfflineFirstGameRepository {
       }
     }
 
+    const opponentMatchups = Array.from(opponentsMap.entries()).map(
+      ([playerId, rec]) => ({
+        playerId,
+        displayName: rec.displayName,
+        gamesTogetherOrAgainst: rec.games,
+        wins: rec.wins,
+        losses: rec.losses,
+        winRatePct: rec.games > 0 ? Math.round((rec.wins / rec.games) * 100) : 0,
+      })
+    );
+
+    const partnerMatchups = Array.from(partnersMap.entries()).map(
+      ([playerId, rec]) => ({
+        playerId,
+        displayName: rec.displayName,
+        gamesTogetherOrAgainst: rec.games,
+        wins: rec.wins,
+        losses: rec.losses,
+        winRatePct: rec.games > 0 ? Math.round((rec.wins / rec.games) * 100) : 0,
+      })
+    );
+
+    const mostWinsAgainst = [...opponentMatchups]
+      .filter((m) => m.wins > 0)
+      .sort((a, b) => b.wins - a.wins || b.winRatePct - a.winRatePct)[0];
+
+    const mostLossesAgainst = [...opponentMatchups]
+      .filter((m) => m.losses > 0)
+      .sort((a, b) => b.losses - a.losses || a.winRatePct - b.winRatePct)[0];
+
+    const bestPartner = [...partnerMatchups]
+      .filter((m) => m.wins > 0)
+      .sort((a, b) => b.wins - a.wins || b.winRatePct - a.winRatePct)[0];
+
     return {
       profileOrGuestId,
       mode: modeFilter,
@@ -553,6 +619,10 @@ export class OfflineFirstGameRepository {
           : 0,
       capotsAchieved,
       winRateByTrump: trumpStats,
+      mostWinsAgainst,
+      mostLossesAgainst,
+      bestPartner,
+      opponentMatchups,
     };
   }
 

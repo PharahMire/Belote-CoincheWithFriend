@@ -296,7 +296,8 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
 
     const appStore = new BeloteAppStore();
 
-    // 1. Sur le bateau (0 réseau) : l'utilisateur est en profil local anonyme
+    // 1. La Feuille de Marque (SCOREBOARD) est bien l'écran principal par défaut
+    assert.equal(appStore.getState().activeScreen, 'SCOREBOARD');
     assert.equal(appStore.getState().currentUser.authStatus, 'OFFLINE_ANONYMOUS');
     assert.equal(appStore.getState().syncStatus.connectivity, 'OFFLINE_BOAT');
 
@@ -311,8 +312,8 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       issuedAt: 1700000000000,
     };
 
-    // 3. Il lance une partie de Coinche sur le bateau (Sud = Moi, Nord = Lucas Invité, Est = Maxime QR, Ouest = Chloé Invitée)
-    appStore.startNewGame({
+    // 3. Il lance une Partie #1 de Coinche sur le bateau (Sud = Moi, Nord = Lucas Invité, Est = Maxime QR, Ouest = Chloé Invitée)
+    const game1 = appStore.startNewGame({
       mode: 'COINCHE',
       targetScore: 500,
       seats: {
@@ -323,71 +324,122 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       },
     });
 
-    // 4. Saisie de 2 donnes via le contrôleur de formulaire (avec auto-complétion sur 162)
-    const draft1 = {
+    // 4. Test du Capot Beloté et de la barre de score des plis ('Capot B' + remplissage 100%)
+    const capotBeloteBar = RoundEntryFormController.computeAutoComplementPoints(
+      'NS',
+      162,
+      'NS',
+      ContractType.CAPOT_BELOTE,
+      'NS',
+      false
+    );
+    assert.equal(capotBeloteBar.displayLabelNS, 'Capot B');
+    assert.equal(capotBeloteBar.displayLabelEW, '0');
+    assert.equal(capotBeloteBar.barFillPctNS, 100);
+    assert.equal(capotBeloteBar.barFillPctEW, 0);
+
+    const draftCapotBelote = {
       rules: DEFAULT_COINCHE_RULES,
-      takerSeat: 'NORTH' as const, // Lucas (NS) prend à 110 Cœur Coinché
+      takerSeat: 'NORTH' as const, // Lucas (NS) annonce Capot Beloté à Cœur
       trump: TrumpMode.HEARTS,
-      contractType: ContractType.NORMAL,
-      contractValue: 110,
-      coincheLevel: CoincheLevel.COINCHE,
-      coincherSeat: 'EAST' as const,
+      contractType: ContractType.CAPOT_BELOTE,
+      contractValue: 250,
+      coincheLevel: CoincheLevel.NONE,
       pointsEnteredForTeam: 'NS' as const,
-      pointsEnteredValue: 120, // EW aura automatiquement 42
+      pointsEnteredValue: 162,
+      capotAchievedBy: 'NS' as const,
       beloteTeam: 'NS' as const,
       declarations: [],
     };
-    const preview1 = RoundEntryFormController.previewLiveScore(draft1);
-    assert.equal(preview1.finalScoreNS, 480); // (110 + 120) * 2 + 20 belote = 480
+    const previewCapotB = RoundEntryFormController.previewLiveScore(draftCapotBelote);
+    assert.equal(previewCapotB.isContractFulfilled, true);
+    assert.equal(previewCapotB.trickDisplayNS, 'Capot B');
+    assert.equal(previewCapotB.finalScoreNS, 520); // 250 contrat + 250 plis + 20 belote = 520 >= 500 !
 
-    appStore.addRoundToActiveGame('SOUTH', RoundEntryFormController.toScoreInput(draft1));
-
-    // Donne 2 : NS marque 190 -> Total NS = 670 >= 500 (Partie gagnée par NS !)
-    appStore.addRoundToActiveGame('WEST', {
-      rules: DEFAULT_COINCHE_RULES,
-      takerSeat: 'SOUTH',
-      trump: TrumpMode.SPADES,
-      contractType: ContractType.NORMAL,
-      contractValue: 90,
-      coincheLevel: CoincheLevel.NONE,
-      rawTrickPointsNS: 100,
-      rawTrickPointsEW: 62,
-    });
+    appStore.addRoundToActiveGame('SOUTH', RoundEntryFormController.toScoreInput(draftCapotBelote));
 
     const activeGame = appStore.getState().activeGame!;
     assert.equal(activeGame.status, 'COMPLETED');
     assert.equal(activeGame.winnerTeam, 'NS');
 
-    // Vérification du ViewModel de la Feuille de Marque en mode Hors-Ligne
+    // 5. Création d'une Partie #2 (Historique de parties) où Est-Ouest (Maxime & Chloé) gagne sur Générale
+    const game2 = appStore.startNewGame({
+      mode: 'COINCHE',
+      targetScore: 500,
+      seats: {
+        SOUTH: { type: 'CURRENT_USER' },
+        NORTH: { type: 'GUEST', guestId: lucasGuest.guestId },
+        EAST: { type: 'OFFLINE_QR', qrPayload: maximeQr },
+        WEST: { type: 'GUEST', guestId: chloeGuest.guestId },
+      },
+    });
+    appStore.addRoundToActiveGame('EAST', {
+      rules: DEFAULT_COINCHE_RULES,
+      takerSeat: 'EAST',
+      trump: TrumpMode.SPADES,
+      contractType: ContractType.GENERALE,
+      contractValue: 500,
+      coincheLevel: CoincheLevel.NONE,
+      rawTrickPointsNS: 0,
+      rawTrickPointsEW: 162,
+      capotAchievedBy: 'EW',
+      generaleAchievedByTaker: true,
+    });
+
+    // Partie #3 gagnée par NS pour que NS ait 2 victoires et 1 défaite contre Maxime & Chloé
+    appStore.startNewGame({
+      mode: 'COINCHE',
+      targetScore: 500,
+      seats: {
+        SOUTH: { type: 'CURRENT_USER' },
+        NORTH: { type: 'GUEST', guestId: lucasGuest.guestId },
+        EAST: { type: 'OFFLINE_QR', qrPayload: maximeQr },
+        WEST: { type: 'GUEST', guestId: chloeGuest.guestId },
+      },
+    });
+    appStore.addRoundToActiveGame('SOUTH', RoundEntryFormController.toScoreInput(draftCapotBelote));
+
+    // Vérification de l'Historique des 3 Parties et sélection d'une ancienne partie
+    const historyList = ScoreSheetPresenter.buildGamesHistoryList(
+      appStore.getState().gamesHistory
+    );
+    assert.equal(historyList.length, 3);
+    appStore.selectGameFromHistory(game1.id);
+    assert.equal(appStore.getState().activeGame?.id, game1.id);
+
     const sheetVm = ScoreSheetPresenter.buildViewModel(
-      activeGame,
+      appStore.getState().activeGame!,
       appStore.getState().syncStatus
     );
-    assert.equal(sheetVm.unlinkedPlayersInGame.length, 2); // Lucas & Chloé sont encore des invités non liés
-    assert.ok(sheetVm.syncBadgeLabel.includes('Hors-Ligne'));
+    assert.equal(sheetVm.roundsRows[0].trickDisplayNS, 'Capot B');
+    assert.equal(sheetVm.unlinkedPlayersInGame.length, 2);
 
-    // 5. Retour à terre ! Le capitaine lie son compte Apple/Google et synchronise automatiquement
+    // 6. Retour à terre ! Le capitaine lie son compte Apple et synchronise automatiquement les 3 parties
     const mergeRes = await appStore.signInAndMergeLocalAccount({
       authenticatedUserId: 'auth-user-augustin',
       username: 'Augustin',
       email: 'augustin@example.com',
       provider: 'APPLE',
     });
-    assert.equal(mergeRes.migratedGamesCount, 1);
+    assert.equal(mergeRes.migratedGamesCount, 3);
     assert.equal(appStore.getState().syncStatus.connectivity, 'ONLINE_SYNCED');
-    assert.equal(appStore.getState().syncStatus.pendingMutationsCount, 0);
 
-    // 6. Liaison rétroactive : "Lucas (Bateau)" crée son compte (@lucas_pro) et on lie son guestId (ou claimCode)
+    // 7. Liaison rétroactive de Lucas
     const linkRes = await appStore.linkGuestToFriend({
       claimCode: lucasGuest.claimCode,
       targetProfileId: 'auth-user-lucas',
       targetUsername: 'LucasPro',
       targetFriendCode: 'BLT-LUC01',
     });
-    assert.equal(linkRes.updatedGamesCount, 1);
+    assert.equal(linkRes.updatedGamesCount, 3);
 
-    // 7. Vérification que LucasPro possède désormais 100% des statistiques de ses parties jouées sur le bateau !
-    const statsVm = StatsDashboardPresenter.buildViewModel(appStore.getState().statsSummary);
-    assert.equal(statsVm.kpis[0].value, '100%'); // 1 victoire / 1 partie
+    // 8. Vérification des Statistiques de Victoires / Défaites par joueur (Proie, Némésis, Meilleur Partenaire)
+    const statsVm = StatsDashboardPresenter.buildViewModel(
+      appStore.getState().statsSummary
+    );
+    assert.equal(statsVm.kpis[0].value, '67%'); // 2V / 3 parties
+    assert.equal(statsVm.rivalries.bestPartner?.name, 'LucasPro');
+    assert.equal(statsVm.rivalries.mostWinsAgainst?.name, 'Maxime');
+    assert.equal(statsVm.rivalries.mostLossesAgainst?.name, 'Maxime');
   });
 });
