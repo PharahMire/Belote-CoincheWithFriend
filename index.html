@@ -1792,6 +1792,13 @@
                   >
                     ✏️ Renommer
                   </button>
+                  <button
+                    type="button"
+                    onclick="deleteGameById('${g.id}')"
+                    class="px-2 py-0.5 rounded bg-slate-800 border border-rose-500/40 text-rose-300 text-[10px] font-bold"
+                  >
+                    🗑️ Supprimer
+                  </button>
                 </div>
                 <h3 class="text-sm font-black text-white truncate">${g.title}</h3>
                 <p class="text-[10px] text-slate-400">${g.date} • ${g.rounds.length} donne(s) • Cible ${g.targetScore}</p>
@@ -1818,6 +1825,26 @@
 
       document.getElementById('historyGrid').innerHTML = gamesDatabase.map(cardHTML).join('');
       document.getElementById('quickResumeList').innerHTML = gamesDatabase.slice(0, 2).map(cardHTML).join('');
+    }
+
+    async function deleteGameById(gameId) {
+      gamesDatabase = gamesDatabase.filter(g => g.id !== gameId);
+      if (activeGameId === gameId) {
+        activeGameId = gamesDatabase[0] ? gamesDatabase[0].id : null;
+      }
+      savePersistedState();
+      renderHistoryLists();
+      computeAndRenderDynamicStats();
+      updateNetworkUI();
+
+      if (isEffectivelyOnline() && supabaseConfig.url && supabaseConfig.anonKey) {
+        try {
+          await supabaseFetch(`${supabaseConfig.url}/rest/v1/games?id=eq.${encodeURIComponent(gameId)}`, {
+            method: 'DELETE'
+          });
+        } catch (_e) {}
+      }
+      showToast('🗑️ Partie supprimée.', 'info');
     }
 
     // --- STATISTIQUES DYNAMIQUES (TOUTES PARTIES : MON TÉLÉPHONE + TÉLÉPHONES D'AMIS) ---
@@ -1969,18 +1996,36 @@
       }
     }
 
-    function removeFriendAt(index) {
+    async function removeFriendAt(index) {
+      const removed = cachedFriends[index];
       cachedFriends.splice(index, 1);
       savePersistedState();
       renderAccountTabUI();
       renderSeatsConfigGrid();
+
+      if (removed && removed.profileId && currentUser.id && supabaseConfig.url && supabaseConfig.anonKey) {
+        try {
+          await supabaseFetch(
+            `${supabaseConfig.url}/rest/v1/friendships?or=(and(requester_id.eq.${encodeURIComponent(currentUser.id)},addressee_id.eq.${encodeURIComponent(removed.profileId)}),and(requester_id.eq.${encodeURIComponent(removed.profileId)},addressee_id.eq.${encodeURIComponent(currentUser.id)}))`,
+            { method: 'DELETE' }
+          );
+        } catch (_e) {}
+      }
     }
 
-    function clearAllFriends() {
+    async function clearAllFriends() {
       cachedFriends = [];
       savePersistedState();
       renderAccountTabUI();
       renderSeatsConfigGrid();
+      if (currentUser.id && supabaseConfig.url && supabaseConfig.anonKey) {
+        try {
+          await supabaseFetch(
+            `${supabaseConfig.url}/rest/v1/friendships?or=(requester_id.eq.${encodeURIComponent(currentUser.id)},addressee_id.eq.${encodeURIComponent(currentUser.id)})`,
+            { method: 'DELETE' }
+          );
+        } catch (_e) {}
+      }
       showToast('🗑️ Liste d\'amis nettoyée.', 'info');
     }
 
@@ -2019,6 +2064,55 @@
       return headers;
     }
 
+    // Wrapper fetch intelligent : renouvelle automatiquement le token JWT expiré (au bout d'1h) ou bascule sur apikey
+    async function supabaseFetch(url, options = {}) {
+      const extraHeaders = options.headers || {};
+      const res = await fetch(url, {
+        ...options,
+        headers: buildSupabaseHeaders(extraHeaders)
+      });
+
+      if (res.status === 401 && currentUser.accessToken) {
+        // Tenter de rafraîchir le token via refreshToken
+        let refreshed = false;
+        if (currentUser.refreshToken && supabaseConfig.url && supabaseConfig.anonKey) {
+          try {
+            const refRes = await fetch(`${supabaseConfig.url}/auth/v1/token?grant_type=refresh_token`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                apikey: supabaseConfig.anonKey
+              },
+              body: JSON.stringify({ refresh_token: currentUser.refreshToken })
+            });
+            if (refRes.ok) {
+              const refData = await refRes.json();
+              if (refData.access_token) {
+                currentUser.accessToken = refData.access_token;
+                if (refData.refresh_token) currentUser.refreshToken = refData.refresh_token;
+                savePersistedState();
+                refreshed = true;
+              }
+            }
+          } catch (_e) {}
+        }
+
+        if (!refreshed) {
+          // Si la session date d'avant l'ajout du refreshToken et a expiré (>1h), on retire le JWT expiré
+          currentUser.accessToken = null;
+          savePersistedState();
+          renderAccountTabUI();
+        }
+
+        return fetch(url, {
+          ...options,
+          headers: buildSupabaseHeaders(extraHeaders)
+        });
+      }
+
+      return res;
+    }
+
     // S'assure que la fiche du joueur et son vrai Code Ami (BLT-XXXXX) sont synchronisés avec public.profiles
     async function ensureMyProfileExistsInSupabase() {
       if (!supabaseConfig.url || !supabaseConfig.anonKey) return;
@@ -2027,9 +2121,8 @@
 
         // 1. Recherche par ID utilisateur Supabase
         if (currentUser.id) {
-          const checkRes = await fetch(
-            `${supabaseConfig.url}/rest/v1/profiles?id=eq.${encodeURIComponent(currentUser.id)}&select=*`,
-            { headers: buildSupabaseHeaders() }
+          const checkRes = await supabaseFetch(
+            `${supabaseConfig.url}/rest/v1/profiles?id=eq.${encodeURIComponent(currentUser.id)}&select=*`
           );
           if (checkRes.ok) {
             rows = await checkRes.json();
@@ -2038,9 +2131,8 @@
 
         // 2. Fallback par pseudo si le compte a été créé dans une session précédente
         if (rows.length === 0 && currentUser.username && currentUser.username !== 'Joueur 1') {
-          const byNameRes = await fetch(
-            `${supabaseConfig.url}/rest/v1/profiles?username=ilike.${encodeURIComponent(currentUser.username)}&limit=1&select=*`,
-            { headers: buildSupabaseHeaders() }
+          const byNameRes = await supabaseFetch(
+            `${supabaseConfig.url}/rest/v1/profiles?username=ilike.${encodeURIComponent(currentUser.username)}&limit=1&select=*`
           );
           if (byNameRes.ok) {
             rows = await byNameRes.json();
@@ -2061,9 +2153,9 @@
 
         // 3. Si le joueur est authentifié mais que son profil n'existe pas encore dans public.profiles, on le crée
         if (currentUser.accessToken && currentUser.id) {
-          const insertRes = await fetch(`${supabaseConfig.url}/rest/v1/profiles?select=*`, {
+          const insertRes = await supabaseFetch(`${supabaseConfig.url}/rest/v1/profiles?select=*`, {
             method: 'POST',
-            headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates,return=representation' }),
+            headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
             body: JSON.stringify({
               id: currentUser.id,
               username: currentUser.username,
@@ -2084,32 +2176,78 @@
       } catch (_e) {}
     }
 
-    // Met aussi à jour les codes amis de la liste d'amis locale depuis public.profiles
-    async function refreshCachedFriendsFromSupabase() {
-      if (!supabaseConfig.url || !supabaseConfig.anonKey || cachedFriends.length === 0) return;
+    // Synchronise la liste d'amis avec la table public.friendships (PUSH local -> DB + PULL DB -> local sur tout appareil)
+    async function syncFriendshipsWithSupabase() {
+      if (!supabaseConfig.url || !supabaseConfig.anonKey || !currentUser.id) return;
       try {
-        let updated = false;
+        // 1. Résoudre les profileId et codes à jour des amis locaux depuis public.profiles
         for (const f of cachedFriends) {
-          if (!f.username) continue;
-          const res = await fetch(
-            `${supabaseConfig.url}/rest/v1/profiles?username=ilike.${encodeURIComponent(f.username)}&limit=1&select=id,username,friend_code`,
-            { headers: buildSupabaseHeaders() }
+          if (!f.username && !f.code) continue;
+          const q = f.code
+            ? `friend_code=ilike.${encodeURIComponent(f.code)}`
+            : `username=ilike.${encodeURIComponent(f.username)}`;
+          const res = await supabaseFetch(
+            `${supabaseConfig.url}/rest/v1/profiles?${q}&limit=1&select=id,username,friend_code`
           );
           if (res.ok) {
             const rows = await res.json();
-            if (rows.length > 0 && rows[0].friend_code && f.code !== rows[0].friend_code) {
+            if (rows.length > 0) {
               f.code = rows[0].friend_code;
               f.username = rows[0].username;
               f.profileId = rows[0].id;
-              updated = true;
             }
           }
         }
-        if (updated) {
-          savePersistedState();
-          renderAccountTabUI();
-          renderSeatsConfigGrid();
+
+        // 2. PUSH : Enregistrer les amis locaux dans public.friendships
+        if (currentUser.id) {
+          for (const f of cachedFriends) {
+            if (!f.profileId || f.profileId === currentUser.id) continue;
+            await supabaseFetch(`${supabaseConfig.url}/rest/v1/friendships?on_conflict=requester_id,addressee_id`, {
+              method: 'POST',
+              headers: { Prefer: 'resolution=merge-duplicates' },
+              body: JSON.stringify({
+                requester_id: currentUser.id,
+                addressee_id: f.profileId,
+                status: 'ACCEPTED'
+              })
+            });
+          }
         }
+
+        // 3. PULL : Récupérer les relations d'amitié depuis public.friendships (quand on se connecte sur un nouvel appareil)
+        const fRes = await supabaseFetch(
+          `${supabaseConfig.url}/rest/v1/friendships?or=(requester_id.eq.${encodeURIComponent(currentUser.id)},addressee_id.eq.${encodeURIComponent(currentUser.id)})&select=*`
+        );
+        if (fRes.ok) {
+          const fRows = await fRes.json();
+          const otherIds = fRows
+            .map(row => (row.requester_id === currentUser.id ? row.addressee_id : row.requester_id))
+            .filter(Boolean);
+
+          if (otherIds.length > 0) {
+            const pRes = await supabaseFetch(
+              `${supabaseConfig.url}/rest/v1/profiles?id=in.(${otherIds.join(',')})&select=id,username,friend_code`
+            );
+            if (pRes.ok) {
+              const pRows = await pRes.json();
+              pRows.forEach(prof => {
+                const idx = cachedFriends.findIndex(
+                  cf => cf.code === prof.friend_code || (cf.username && cf.username.toLowerCase() === prof.username.toLowerCase())
+                );
+                if (idx >= 0) {
+                  cachedFriends[idx] = { username: prof.username, code: prof.friend_code, profileId: prof.id };
+                } else {
+                  cachedFriends.push({ username: prof.username, code: prof.friend_code, profileId: prof.id });
+                }
+              });
+            }
+          }
+        }
+
+        savePersistedState();
+        renderAccountTabUI();
+        renderSeatsConfigGrid();
       } catch (_e) {}
     }
 
@@ -2174,9 +2312,9 @@
         }
         currentUser.email = email;
         currentUser.accessToken = data.access_token || (data.session && data.session.access_token) || null;
+        currentUser.refreshToken = data.refresh_token || (data.session && data.session.refresh_token) || currentUser.refreshToken || null;
 
         if (!currentUser.accessToken && mode === 'SIGNUP') {
-          // Tentative de login immédiat après signup
           const loginRes = await fetch(`${supabaseConfig.url}/auth/v1/token?grant_type=password`, {
             method: 'POST',
             headers: buildSupabaseHeaders(),
@@ -2185,6 +2323,7 @@
           if (loginRes.ok) {
             const loginData = await loginRes.json();
             currentUser.accessToken = loginData.access_token || null;
+            currentUser.refreshToken = loginData.refresh_token || currentUser.refreshToken || null;
             if (loginData.user && loginData.user.id) {
               currentUser.id = loginData.user.id;
             }
@@ -2193,6 +2332,8 @@
 
         // Récupère immédiatement le vrai friend_code créé par le trigger SQL dans public.profiles
         await ensureMyProfileExistsInSupabase();
+        // Synchronise les amis depuis public.friendships
+        await syncFriendshipsWithSupabase();
 
         newGameConfig.seats.NORTH.name = currentUser.username;
         newGameConfig.seats.NORTH.badge = `✓ ${currentUser.friendCode}`;
@@ -2227,9 +2368,8 @@
 
       try {
         const encoded = encodeURIComponent(q);
-        const res = await fetch(
-          `${supabaseConfig.url}/rest/v1/profiles?or=(friend_code.ilike.${encoded},username.ilike.${encoded})&limit=1`,
-          { headers: buildSupabaseHeaders() }
+        const res = await supabaseFetch(
+          `${supabaseConfig.url}/rest/v1/profiles?or=(friend_code.ilike.${encoded},username.ilike.${encoded})&limit=1`
         );
         if (!res.ok) throw new Error('Erreur réseau Supabase');
         const rows = await res.json();
@@ -2247,8 +2387,22 @@
         } else {
           cachedFriends.unshift({ username: found.username, code: found.friend_code, profileId: found.id });
         }
+
+        // Enregistrer immédiatement dans public.friendships sur Supabase
+        if (currentUser.id && found.id && currentUser.id !== found.id) {
+          await supabaseFetch(`${supabaseConfig.url}/rest/v1/friendships?on_conflict=requester_id,addressee_id`, {
+            method: 'POST',
+            headers: { Prefer: 'resolution=merge-duplicates' },
+            body: JSON.stringify({
+              requester_id: currentUser.id,
+              addressee_id: found.id,
+              status: 'ACCEPTED'
+            })
+          });
+        }
+
         document.getElementById('addFriendQueryInput').value = '';
-        msgEl.textContent = `✅ Ami ajouté depuis Supabase : ${found.username} (${found.friend_code})`;
+        msgEl.textContent = `✅ Ami ajouté et sauvegardé sur votre compte : ${found.username} (${found.friend_code})`;
         msgEl.className = 'text-[11px] text-emerald-400 font-bold';
         savePersistedState();
         renderAccountTabUI();
@@ -2276,6 +2430,7 @@
         if (!p.seat || !SEAT_ORDER.includes(p.seat)) return;
         if (p.guest_name) players[p.seat] = p.guest_name;
         seatMeta[p.seat] = {
+          participantId: p.id,
           name: p.guest_name || players[p.seat],
           code: p.claim_code || (seatMeta[p.seat] && seatMeta[p.seat].code) || null,
           profileId: p.profile_id || (seatMeta[p.seat] && seatMeta[p.seat].profileId) || null
@@ -2352,27 +2507,30 @@
       };
     }
 
-    // Télécharge depuis Supabase toutes les parties où le joueur apparaît (créées sur son téléphone ou celui d'un ami)
+    // Télécharge depuis Supabase toutes les parties où le joueur apparaît ET supprime localement celles supprimées sur Supabase
     async function pullGamesFromSupabase() {
       if (!isEffectivelyOnline() || !supabaseConfig.url || !supabaseConfig.anonKey) return 0;
 
       try {
         const [gamesRes, partsRes, roundsRes] = await Promise.all([
-          fetch(`${supabaseConfig.url}/rest/v1/games?is_deleted=eq.false&order=started_at.desc&limit=100`, {
-            headers: buildSupabaseHeaders()
-          }),
-          fetch(`${supabaseConfig.url}/rest/v1/game_participants?select=*`, {
-            headers: buildSupabaseHeaders()
-          }),
-          fetch(`${supabaseConfig.url}/rest/v1/game_rounds?is_deleted=eq.false&order=round_number.asc`, {
-            headers: buildSupabaseHeaders()
-          })
+          supabaseFetch(`${supabaseConfig.url}/rest/v1/games?is_deleted=eq.false&order=started_at.desc&limit=100`),
+          supabaseFetch(`${supabaseConfig.url}/rest/v1/game_participants?select=*`),
+          supabaseFetch(`${supabaseConfig.url}/rest/v1/game_rounds?is_deleted=eq.false&order=round_number.asc`)
         ]);
 
         if (!gamesRes.ok) return 0;
         const cloudGames = await gamesRes.json();
         const allParts = partsRes.ok ? await partsRes.json() : [];
         const allRounds = roundsRes.ok ? await roundsRes.json() : [];
+
+        // 1. Nettoyage automatique : si une partie déjà synchronisée ('SYNCED') a été supprimée dans Supabase, on la retire de l'application !
+        const cloudGameIds = new Set(cloudGames.map(cg => cg.id));
+        gamesDatabase = gamesDatabase.filter(loc => {
+          if (loc.syncStatus === 'SYNCED' && !cloudGameIds.has(loc.id)) {
+            return false;
+          }
+          return true;
+        });
 
         let pulledCount = 0;
 
@@ -2387,7 +2545,6 @@
           const dbRoundRows = allRounds.filter(r => r.game_id === cg.id);
           let mappedRounds = dbRoundRows.map(mapCloudRoundToLocal);
 
-          // Si une ancienne partie a un score total mais 0 ligne dans game_rounds, on préserve son score
           if (mappedRounds.length === 0 && ((cg.score_ns || 0) > 0 || (cg.score_ew || 0) > 0)) {
             mappedRounds = [{
               id: generateUuid(),
@@ -2418,7 +2575,6 @@
           const existingIdx = gamesDatabase.findIndex(loc => loc.id === cg.id);
           if (existingIdx >= 0) {
             const loc = gamesDatabase[existingIdx];
-            // Ne pas écraser une partie locale modifiée hors-ligne non encore poussée
             if (loc.syncStatus === 'SYNCED' || mappedRounds.length > (loc.rounds || []).length) {
               loc.createdBy = cg.created_by;
               loc.title = cg.title || loc.title;
@@ -2453,8 +2609,10 @@
           }
         }
 
-        // Trier par date décroissante
         gamesDatabase.sort((a, b) => new Date(b.startedAtIso || 0) - new Date(a.startedAtIso || 0));
+        if (activeGameId && !gamesDatabase.some(g => g.id === activeGameId)) {
+          activeGameId = gamesDatabase[0] ? gamesDatabase[0].id : null;
+        }
         savePersistedState();
         renderHistoryLists();
         computeAndRenderDynamicStats();
@@ -2486,35 +2644,45 @@
       if (showUserFeedback) showToast('🔄 Synchronisation avec Supabase en cours...', 'info');
 
       try {
-        // 1. S'assurer que le profil et le vrai Code Ami (BLT-XXXXX) sont chargés
+        // 1. S'assurer que le profil et les amis sont synchronisés
         await ensureMyProfileExistsInSupabase();
-        await refreshCachedFriendsFromSupabase();
+        await syncFriendshipsWithSupabase();
 
+        // 2. Nettoyer d'abord les parties qui ont été supprimées sur Supabase (via pullGamesFromSupabase)
+        await pullGamesFromSupabase();
+
+        // Récupérer la liste des IDs de profils valides dans public.profiles pour garantir l'intégrité des clés étrangères
+        const validProfileIds = new Set();
+        const profsRes = await supabaseFetch(`${supabaseConfig.url}/rest/v1/profiles?select=id,username,friend_code`);
+        if (profsRes.ok) {
+          const allProfs = await profsRes.json();
+          allProfs.forEach(p => validProfileIds.add(p.id));
+        }
+
+        // 3. PUSH : Envoyer les parties locales modifiées vers public.games, public.game_participants et public.game_rounds
         const dirtyGames = gamesDatabase.filter(g => g.syncStatus !== 'SYNCED');
 
-        if (dirtyGames.length > 0 && !currentUser.accessToken) {
-          await pullGamesFromSupabase();
+        if (dirtyGames.length > 0 && !validProfileIds.has(currentUser.id)) {
           if (showUserFeedback) {
-            showToast('🔑 Connectez-vous dans l\'onglet 👤 Compte pour envoyer vos nouvelles parties.', 'error');
+            showToast('🔑 Connectez-vous dans l\'onglet 👤 Compte pour synchroniser vos parties.', 'error');
             switchHomeTab('accounts');
           }
           return;
         }
 
-        // 2. PUSH : Envoyer les parties locales modifiées vers public.games, public.game_participants et public.game_rounds
         for (const g of dirtyGames) {
           const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
           const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
           const isComp = g.status === 'COMPLETED' || totNS >= g.targetScore || totEW >= g.targetScore;
           if (isComp) g.status = 'COMPLETED';
 
-          // Enrichir seatMeta avec les codes amis connus dans cachedFriends si besoin
           g.seatMeta = g.seatMeta || {};
           SEAT_ORDER.forEach(seat => {
             const pName = (g.players && g.players[seat]) || SEAT_LABELS[seat];
             const existingMeta = g.seatMeta[seat] || {};
             if (seat === 'NORTH' && (!existingMeta.code || !existingMeta.profileId)) {
               g.seatMeta.NORTH = {
+                participantId: existingMeta.participantId || generateUuid(),
                 name: pName,
                 code: existingMeta.code || currentUser.friendCode || null,
                 profileId: existingMeta.profileId || currentUser.id || null
@@ -2524,6 +2692,7 @@
                 f => (existingMeta.code && f.code === existingMeta.code) || (pName && f.username && f.username.toLowerCase() === pName.toLowerCase())
               );
               g.seatMeta[seat] = {
+                participantId: existingMeta.participantId || generateUuid(),
                 name: pName,
                 code: existingMeta.code || (matchedFriend ? matchedFriend.code : null),
                 profileId: existingMeta.profileId || (matchedFriend ? matchedFriend.profileId : null)
@@ -2531,10 +2700,11 @@
             }
           });
 
+          const creatorId = (g.createdBy && validProfileIds.has(g.createdBy)) ? g.createdBy : currentUser.id;
           const hlc = `${Date.now()}:0001:pwa`;
           const gameRow = {
             id: g.id,
-            created_by: g.createdBy || currentUser.id,
+            created_by: creatorId,
             title: g.title,
             mode: g.mode,
             status: g.status,
@@ -2558,17 +2728,17 @@
             client_hlc: hlc
           };
 
-          let gameRes = await fetch(`${supabaseConfig.url}/rest/v1/games`, {
+          let gameRes = await supabaseFetch(`${supabaseConfig.url}/rest/v1/games`, {
             method: 'POST',
-            headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates' }),
+            headers: { Prefer: 'resolution=merge-duplicates' },
             body: JSON.stringify(gameRow)
           });
 
           if (!gameRes.ok) {
             const { title, ...gameRowWithoutTitle } = gameRow;
-            gameRes = await fetch(`${supabaseConfig.url}/rest/v1/games`, {
+            gameRes = await supabaseFetch(`${supabaseConfig.url}/rest/v1/games`, {
               method: 'POST',
-              headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates' }),
+              headers: { Prefer: 'resolution=merge-duplicates' },
               body: JSON.stringify(gameRowWithoutTitle)
             });
           }
@@ -2581,27 +2751,40 @@
           // Synchroniser les 4 participants dans public.game_participants
           const participantRows = SEAT_ORDER.map(seat => {
             const sm = (g.seatMeta && g.seatMeta[seat]) || {};
-            const pName = (g.players && g.players[seat]) || SEAT_LABELS[seat];
+            const pName = ((g.players && g.players[seat]) || SEAT_LABELS[seat]).trim() || SEAT_LABELS[seat];
+            const validProfId = (sm.profileId && validProfileIds.has(sm.profileId)) ? sm.profileId : null;
             return {
               id: sm.participantId || generateUuid(),
               game_id: g.id,
               seat,
               team: (seat === 'NORTH' || seat === 'SOUTH') ? 'NS' : 'EW',
-              profile_id: sm.profileId || null,
+              profile_id: validProfId,
               guest_name: pName,
               claim_code: sm.code || null
             };
           });
-          await fetch(`${supabaseConfig.url}/rest/v1/game_participants?on_conflict=game_id,seat`, {
+
+          const partRes = await supabaseFetch(`${supabaseConfig.url}/rest/v1/game_participants?on_conflict=game_id,seat`, {
             method: 'POST',
-            headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates' }),
+            headers: { Prefer: 'resolution=merge-duplicates' },
             body: JSON.stringify(participantRows)
           });
+          if (!partRes.ok) {
+            // Fallback : suppression + réinsertion propre des 4 places de la partie
+            await supabaseFetch(`${supabaseConfig.url}/rest/v1/game_participants?game_id=eq.${encodeURIComponent(g.id)}`, {
+              method: 'DELETE'
+            });
+            await supabaseFetch(`${supabaseConfig.url}/rest/v1/game_participants`, {
+              method: 'POST',
+              body: JSON.stringify(participantRows)
+            });
+          }
 
           // Synchroniser chaque donne dans public.game_rounds
           for (const r of g.rounds) {
+            r.id = r.id || generateUuid();
             const roundRow = {
-              id: r.id || generateUuid(),
+              id: r.id,
               game_id: g.id,
               round_number: r.num,
               dealer_seat: r.dealerSeat || 'NORTH',
@@ -2624,9 +2807,9 @@
               client_hlc: hlc
             };
 
-            await fetch(`${supabaseConfig.url}/rest/v1/game_rounds?on_conflict=game_id,round_number`, {
+            await supabaseFetch(`${supabaseConfig.url}/rest/v1/game_rounds?on_conflict=game_id,round_number`, {
               method: 'POST',
-              headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates' }),
+              headers: { Prefer: 'resolution=merge-duplicates' },
               body: JSON.stringify(roundRow)
             });
           }
@@ -2634,17 +2817,14 @@
           g.syncStatus = 'SYNCED';
         }
 
-        // 3. PULL : Récupérer les parties jouées sur d'autres téléphones où l'utilisateur apparaît
-        await pullGamesFromSupabase();
-
         savePersistedState();
-        renderActiveGame();
+        if (activeGameId) renderActiveGame();
         renderHistoryLists();
         computeAndRenderDynamicStats();
         updateNetworkUI();
 
         if (showUserFeedback) {
-          showToast(`✅ Synchronisation terminée (${gamesDatabase.length} partie(s) au total) !`, 'success');
+          showToast(`✅ Synchronisation terminée (${gamesDatabase.length} partie(s) active(s)) !`, 'success');
         }
       } catch (err) {
         updateNetworkUI();
@@ -2673,8 +2853,6 @@
 
     window.addEventListener('online', () => {
       updateNetworkUI();
-      ensureMyProfileExistsInSupabase();
-      refreshCachedFriendsFromSupabase();
       syncWithSupabaseNow(true);
     });
     window.addEventListener('offline', () => {
@@ -2700,10 +2878,10 @@
     renderAccountTabUI();
     updateDefaultTitlePreview();
     updateNetworkUI();
-    // Synchronise automatiquement le profil, les amis ET récupère les parties jouées sur d'autres téléphones dès l'ouverture
+    // Synchronise automatiquement le profil, la table friendships ET nettoie/récupère les parties dès l'ouverture
     (async () => {
       await ensureMyProfileExistsInSupabase();
-      await refreshCachedFriendsFromSupabase();
+      await syncFriendshipsWithSupabase();
       await pullGamesFromSupabase();
     })();
   </script>

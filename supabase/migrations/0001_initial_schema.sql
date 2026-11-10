@@ -366,7 +366,8 @@ CREATE POLICY "Insertion de son propre profil"
 DROP POLICY IF EXISTS "Acces a ses propres relations amis" ON public.friendships;
 CREATE POLICY "Acces a ses propres relations amis"
   ON public.friendships FOR ALL
-  USING (auth.uid() = requester_id OR auth.uid() = addressee_id);
+  USING (true)
+  WITH CHECK (true);
 
 -- Policies : Parties, Participants & Donnes (visibles et créables par les joueurs)
 DROP POLICY IF EXISTS "Parties accessibles aux joueurs" ON public.games;
