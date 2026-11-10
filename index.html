@@ -88,15 +88,12 @@
         </button>
       </div>
 
-      <!-- Statut Réseau Réel + Bouton Sync / Simulation Hors-Ligne -->
+      <!-- Statut Réseau Réel (Détection automatique En Ligne / Hors-Ligne) -->
       <div class="flex items-center gap-2">
         <div id="networkBadge" class="flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
           <span id="networkDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
           <span id="networkText">En Ligne</span>
         </div>
-        <button onclick="toggleSimulatedOffline()" id="btnToggleNet" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer">
-          Simuler Bateau (Hors-Ligne)
-        </button>
       </div>
     </header>
 
@@ -769,7 +766,7 @@
     // État persistant (chargé depuis localStorage)
     let currentUser = {
       id: generateUuid(),
-      username: 'Alex',
+      username: 'Joueur 1',
       email: '',
       friendCode: 'BLT-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
       accessToken: null
@@ -780,14 +777,8 @@
       anonKey: ''
     };
 
-    let cachedFriends = [
-      { username: 'Thomas', code: 'BLT-8821' },
-      { username: 'Matéo', code: 'BLT-9981' },
-      { username: 'Inès', code: 'BLT-1044' }
-    ];
-
+    let cachedFriends = [];
     let gamesDatabase = [];
-    let simulatedOffline = false;
     let activeGameId = null;
     let renamingGameId = null;
     let editingRoundIndex = null;
@@ -797,10 +788,10 @@
       targetScore: 2000,
       initialDealerSeat: 'NORTH',
       seats: {
-        NORTH: { linkType: 'ME', name: 'Alex', badge: '✓ Mon Compte' },
-        SOUTH: { linkType: 'FRIEND', name: 'Thomas', badge: '👥 Ami (BLT-8821)' },
-        EAST:  { linkType: 'GUEST', name: 'Inès', badge: '👤 Invité (CLAIM-4821)' },
-        WEST:  { linkType: 'FRIEND', name: 'Matéo', badge: '👥 Ami (BLT-9981)' }
+        NORTH: { linkType: 'ME', name: 'Joueur 1', badge: '✓ Mon Compte' },
+        SOUTH: { linkType: 'GUEST', name: 'Sud', badge: '👤 Invité' },
+        EAST:  { linkType: 'GUEST', name: 'Est', badge: '👤 Invité' },
+        WEST:  { linkType: 'GUEST', name: 'Ouest', badge: '👤 Invité' }
       }
     };
 
@@ -867,7 +858,7 @@
     }
 
     function isEffectivelyOnline() {
-      return navigator.onLine && !simulatedOffline;
+      return navigator.onLine;
     }
 
     function getDirtyGamesCount() {
@@ -2120,33 +2111,20 @@
       updateNetworkUI();
     }
 
-    function toggleSimulatedOffline() {
-      simulatedOffline = !simulatedOffline;
-      updateNetworkUI();
-      if (isEffectivelyOnline()) {
-        syncWithSupabaseNow();
-      }
-    }
-
     function updateNetworkUI() {
       const badge = document.getElementById('networkBadge');
       const dot = document.getElementById('networkDot');
       const text = document.getElementById('networkText');
-      const btn = document.getElementById('btnToggleNet');
       const dirtyCount = getDirtyGamesCount();
 
       if (isEffectivelyOnline()) {
         badge.className = 'flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
         dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
-        text.textContent = dirtyCount > 0 ? `En Ligne (${dirtyCount} locale(s))` : 'En Ligne • Prêt';
-        btn.textContent = 'Simuler Bateau (Hors-Ligne)';
-        btn.className = 'px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer';
+        text.textContent = dirtyCount > 0 ? `En Ligne (${dirtyCount} locale(s))` : 'En Ligne';
       } else {
         badge.className = 'flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40';
         dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
         text.textContent = `⛵ Hors-Ligne (${dirtyCount} en attente)`;
-        btn.textContent = 'Repasser En Ligne';
-        btn.className = 'px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition cursor-pointer';
       }
     }
 
