@@ -13,6 +13,7 @@ import {
 } from '../../data/sync/LifecycleSyncCoordinator.ts';
 import type {
   GameRecord,
+  PersistedRoundRecord,
   PlayerStatsSummary,
 } from '../../domain/models/Game.ts';
 import type {
@@ -22,16 +23,29 @@ import type {
   UserProfile,
 } from '../../domain/models/UserProfile.ts';
 
-export type ActiveTabScreen =
-  | 'SCOREBOARD'
-  | 'GAMES_HISTORY'
+/**
+ * Les 4 onglets de l'écran d'accueil :
+ * 1. NEW_GAME (Création d'une partie — Onglet par défaut)
+ * 2. GAMES_HISTORY (Historique des parties)
+ * 3. STATS (Dashboard de statistiques & rivalités)
+ * 4. ACCOUNT_AND_QR (Comptes, liaison invités & QR Codes)
+ */
+export type HomeTab =
   | 'NEW_GAME'
-  | 'GUEST_LINKING'
+  | 'GAMES_HISTORY'
   | 'STATS'
   | 'ACCOUNT_AND_QR';
 
 export interface AppViewModelState {
-  readonly activeScreen: ActiveTabScreen;
+  readonly activeHomeTab: HomeTab;
+  /**
+   * La Feuille de Marque n'apparaît PAS dans les onglets de l'écran d'accueil :
+   * elle s'ouvre uniquement lorsqu'on crée une nouvelle partie ou qu'on ouvre/modifie une partie depuis l'historique.
+   */
+  readonly isScoreSheetOpen: boolean;
+  /** Si renseigné, indique le numéro de la donne en cours d'édition sur la feuille de marque */
+  readonly editingRoundNumber?: number;
+  readonly editingRoundRecord?: PersistedRoundRecord;
   readonly currentUser: UserProfile;
   readonly syncStatus: SyncLifecycleStatus;
   readonly activeGame?: GameRecord;
@@ -47,9 +61,12 @@ export interface AppViewModelState {
 export class BeloteAppStore {
   private readonly repo: OfflineFirstGameRepository;
   private readonly syncCoordinator: LifecycleSyncCoordinator;
-  /** Le mode Feuille de Marque (SCOREBOARD) est l'écran principal par défaut */
-  private activeScreen: ActiveTabScreen = 'SCOREBOARD';
+  /** Onglet 1 par défaut sur l'écran d'accueil : Création d'une partie */
+  private activeHomeTab: HomeTab = 'NEW_GAME';
+  /** La feuille de marque est fermée sur l'accueil tant qu'on ne crée/modifie pas une partie */
+  private isScoreSheetOpen = false;
   private activeGameId?: string;
+  private editingRoundNumber?: number;
   private statsModeFilter: GameMode | 'ALL' = 'ALL';
   private readonly listeners = new Set<(state: AppViewModelState) => void>();
 
@@ -71,11 +88,20 @@ export class BeloteAppStore {
     const gamesHistory = this.repo.getAllGames();
     const activeGame = this.activeGameId
       ? gamesHistory.find((g) => g.id === this.activeGameId)
-      : gamesHistory[0];
+      : undefined;
+    const editingRoundRecord =
+      activeGame && this.editingRoundNumber !== undefined
+        ? activeGame.rounds.find(
+            (r) => r.roundNumber === this.editingRoundNumber
+          )
+        : undefined;
     const currentUser = this.repo.getCurrentUser();
 
     return {
-      activeScreen: this.activeScreen,
+      activeHomeTab: this.activeHomeTab,
+      isScoreSheetOpen: this.isScoreSheetOpen && activeGame !== undefined,
+      editingRoundNumber: this.editingRoundNumber,
+      editingRoundRecord,
       currentUser,
       syncStatus: this.syncCoordinator.getStatus(),
       activeGame,
@@ -89,15 +115,40 @@ export class BeloteAppStore {
     };
   }
 
-  public navigateTo(screen: ActiveTabScreen): void {
-    this.activeScreen = screen;
+  /** Change d'onglet sur l'écran d'accueil (et ferme la feuille de marque si elle était ouverte) */
+  public navigateToHomeTab(tab: HomeTab): void {
+    this.activeHomeTab = tab;
+    this.isScoreSheetOpen = false;
+    this.editingRoundNumber = undefined;
     this.notify();
   }
 
-  /** Permet d'ouvrir n'importe quelle partie depuis l'Historique des Parties dans la Feuille de Marque */
+  /** Ouvre la Feuille de Marque pour consulter ou modifier une partie existante depuis l'Historique */
   public selectGameFromHistory(gameId: string): void {
     this.activeGameId = gameId;
-    this.activeScreen = 'SCOREBOARD';
+    this.isScoreSheetOpen = true;
+    this.editingRoundNumber = undefined;
+    this.notify();
+  }
+
+  /** Ferme la Feuille de Marque et revient à l'écran d'accueil */
+  public closeScoreSheet(returnToTab?: HomeTab): void {
+    if (returnToTab) {
+      this.activeHomeTab = returnToTab;
+    }
+    this.isScoreSheetOpen = false;
+    this.editingRoundNumber = undefined;
+    this.notify();
+  }
+
+  /** Passe la feuille de marque en mode édition d'une donne existante */
+  public startEditingRound(roundNumber: number): void {
+    this.editingRoundNumber = roundNumber;
+    this.notify();
+  }
+
+  public cancelEditingRound(): void {
+    this.editingRoundNumber = undefined;
     this.notify();
   }
 
@@ -118,6 +169,7 @@ export class BeloteAppStore {
     return friend;
   }
 
+  /** Crée une nouvelle partie et ouvre immédiatement sa Feuille de Marque */
   public startNewGame(params: {
     mode: GameMode;
     targetScore?: number;
@@ -145,7 +197,8 @@ export class BeloteAppStore {
     });
 
     this.activeGameId = game.id;
-    this.activeScreen = 'SCOREBOARD';
+    this.isScoreSheetOpen = true;
+    this.editingRoundNumber = undefined;
     this.notify();
     return game;
   }
@@ -159,6 +212,26 @@ export class BeloteAppStore {
       throw new Error('Aucune partie active.');
     }
     const updated = this.repo.recordRound(current.id, dealerSeat, input);
+    this.editingRoundNumber = undefined;
+    this.notify();
+    return updated;
+  }
+
+  /** Modifie une donne existante de la partie active (au lieu de l'annuler) */
+  public updateRoundInActiveGame(
+    roundNumber: number,
+    updatedInput: RoundScoreInput
+  ): GameRecord {
+    const current = this.getState().activeGame;
+    if (!current) {
+      throw new Error('Aucune partie active.');
+    }
+    const updated = this.repo.updateRound(
+      current.id,
+      roundNumber,
+      updatedInput
+    );
+    this.editingRoundNumber = undefined;
     this.notify();
     return updated;
   }

@@ -292,6 +292,85 @@ export class OfflineFirstGameRepository {
   }
 
   /**
+   * 4bis. MODIFICATION D'UNE DONNE EXISTANTE (Recalcul complet + Sync LWW via HLC)
+   */
+  public updateRound(
+    gameId: string,
+    roundNumber: number,
+    updatedInput: RoundScoreInput
+  ): GameRecord {
+    const game = this.games.get(gameId);
+    if (!game) {
+      throw new Error(`Partie introuvable : ${gameId}`);
+    }
+
+    const roundIndex = game.rounds.findIndex(
+      (r) => r.roundNumber === roundNumber
+    );
+    if (roundIndex === -1) {
+      throw new Error(`Donne #${roundNumber} introuvable dans la partie ${gameId}`);
+    }
+
+    const existingRound = game.rounds[roundIndex];
+    const newResult = ScoreEngine.computeRoundScore(updatedInput);
+    const hlc = this.hlc.now();
+
+    const updatedRoundRecord: PersistedRoundRecord = {
+      ...existingRound,
+      input: updatedInput,
+      result: newResult,
+      clientHlc: hlc,
+      syncStatus: 'DIRTY',
+    };
+
+    const updatedRounds = game.rounds.map((r, idx) =>
+      idx === roundIndex ? updatedRoundRecord : r
+    );
+
+    const nextScoreNS = updatedRounds.reduce(
+      (sum, r) => sum + r.result.finalScoreNS,
+      0
+    );
+    const nextScoreEW = updatedRounds.reduce(
+      (sum, r) => sum + r.result.finalScoreEW,
+      0
+    );
+
+    const isCompleted =
+      nextScoreNS >= game.targetScore || nextScoreEW >= game.targetScore;
+    const winnerTeam = isCompleted
+      ? nextScoreNS >= nextScoreEW
+        ? 'NS'
+        : 'EW'
+      : undefined;
+
+    const updatedGame: GameRecord = {
+      ...game,
+      rounds: updatedRounds,
+      scoreNS: nextScoreNS,
+      scoreEW: nextScoreEW,
+      status: isCompleted ? 'COMPLETED' : 'IN_PROGRESS',
+      winnerTeam,
+      endedAt: isCompleted
+        ? game.endedAt ?? new Date().toISOString()
+        : undefined,
+      clientHlc: hlc,
+      syncStatus: 'DIRTY',
+    };
+
+    this.games.set(gameId, updatedGame);
+    this.enqueueMutation(
+      'GAME_ROUND',
+      updatedRoundRecord.id,
+      'UPSERT',
+      updatedRoundRecord,
+      hlc
+    );
+    this.enqueueMutation('GAME', gameId, 'UPSERT', updatedGame, hlc);
+    return updatedGame;
+  }
+
+  /**
    * 5. CONNEXION & LIAISON DU COMPTE LOCAL ("Account Merging" après retour de mer)
    * Rattache toutes les parties créées hors-ligne sous `local-anon-user` au vrai compte Supabase Auth !
    */

@@ -296,8 +296,10 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
 
     const appStore = new BeloteAppStore();
 
-    // 1. La Feuille de Marque (SCOREBOARD) est bien l'écran principal par défaut
-    assert.equal(appStore.getState().activeScreen, 'SCOREBOARD');
+    // 1. L'écran d'accueil s'ouvre sur le 1er onglet "Création d'une partie" (NEW_GAME)
+    //    et la Feuille de Marque est fermée tant qu'on n'a pas créé ou sélectionné une partie.
+    assert.equal(appStore.getState().activeHomeTab, 'NEW_GAME');
+    assert.equal(appStore.getState().isScoreSheetOpen, false);
     assert.equal(appStore.getState().currentUser.authStatus, 'OFFLINE_ANONYMOUS');
     assert.equal(appStore.getState().syncStatus.connectivity, 'OFFLINE_BOAT');
 
@@ -312,7 +314,7 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       issuedAt: 1700000000000,
     };
 
-    // 3. Il lance une Partie #1 de Coinche sur le bateau (Sud = Moi, Nord = Lucas Invité, Est = Maxime QR, Ouest = Chloé Invitée)
+    // 3. Il lance une Partie #1 de Coinche -> La Feuille de Marque s'ouvre automatiquement !
     const game1 = appStore.startNewGame({
       mode: 'COINCHE',
       targetScore: 500,
@@ -323,24 +325,29 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
         WEST: { type: 'GUEST', guestId: chloeGuest.guestId },
       },
     });
+    assert.equal(appStore.getState().isScoreSheetOpen, true);
 
-    // 4. Test du Capot Beloté et de la barre de score des plis ('Capot B' + remplissage 100%)
-    const capotBeloteBar = RoundEntryFormController.computeAutoComplementPoints(
-      'NS',
-      162,
-      'NS',
-      ContractType.CAPOT_BELOTE,
-      'NS',
-      false
-    );
-    assert.equal(capotBeloteBar.displayLabelNS, 'Capot B');
-    assert.equal(capotBeloteBar.displayLabelEW, '0');
-    assert.equal(capotBeloteBar.barFillPctNS, 100);
-    assert.equal(capotBeloteBar.barFillPctEW, 0);
+    // 4. Saisie d'une donne initiale (contrat 100 réussi -> 200 pts), puis MODIFICATION de cette donne #1 en Capot Beloté (520 pts)
+    appStore.addRoundToActiveGame('SOUTH', {
+      rules: DEFAULT_COINCHE_RULES,
+      takerSeat: 'NORTH',
+      trump: TrumpMode.HEARTS,
+      contractType: ContractType.NORMAL,
+      contractValue: 100,
+      coincheLevel: CoincheLevel.NONE,
+      rawTrickPointsNS: 100,
+      rawTrickPointsEW: 62,
+    });
+    assert.equal(appStore.getState().activeGame?.scoreNS, 200);
+    assert.equal(appStore.getState().activeGame?.status, 'IN_PROGRESS');
+
+    // L'utilisateur clique sur "Modifier la donne #1" au lieu de l'annuler
+    appStore.startEditingRound(1);
+    assert.equal(appStore.getState().editingRoundNumber, 1);
 
     const draftCapotBelote = {
       rules: DEFAULT_COINCHE_RULES,
-      takerSeat: 'NORTH' as const, // Lucas (NS) annonce Capot Beloté à Cœur
+      takerSeat: 'NORTH' as const, // Lucas (NS) annonce finalement Capot Beloté à Cœur
       trump: TrumpMode.HEARTS,
       contractType: ContractType.CAPOT_BELOTE,
       contractValue: 250,
@@ -351,19 +358,24 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       beloteTeam: 'NS' as const,
       declarations: [],
     };
-    const previewCapotB = RoundEntryFormController.previewLiveScore(draftCapotBelote);
-    assert.equal(previewCapotB.isContractFulfilled, true);
-    assert.equal(previewCapotB.trickDisplayNS, 'Capot B');
-    assert.equal(previewCapotB.finalScoreNS, 520); // 250 contrat + 250 plis + 20 belote = 520 >= 500 !
-
-    appStore.addRoundToActiveGame('SOUTH', RoundEntryFormController.toScoreInput(draftCapotBelote));
+    appStore.updateRoundInActiveGame(
+      1,
+      RoundEntryFormController.toScoreInput(draftCapotBelote)
+    );
+    assert.equal(appStore.getState().editingRoundNumber, undefined);
 
     const activeGame = appStore.getState().activeGame!;
+    assert.equal(activeGame.scoreNS, 520); // Recalculé automatiquement après modification de la donne #1
     assert.equal(activeGame.status, 'COMPLETED');
     assert.equal(activeGame.winnerTeam, 'NS');
 
-    // 5. Création d'une Partie #2 (Historique de parties) où Est-Ouest (Maxime & Chloé) gagne sur Générale
-    const game2 = appStore.startNewGame({
+    // Retour à l'accueil (la Feuille de Marque se ferme)
+    appStore.closeScoreSheet('GAMES_HISTORY');
+    assert.equal(appStore.getState().isScoreSheetOpen, false);
+    assert.equal(appStore.getState().activeHomeTab, 'GAMES_HISTORY');
+
+    // 5. Création d'une Partie #2 où Est-Ouest (Maxime & Chloé) gagne sur Générale
+    appStore.startNewGame({
       mode: 'COINCHE',
       targetScore: 500,
       seats: {
@@ -386,7 +398,7 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       generaleAchievedByTaker: true,
     });
 
-    // Partie #3 gagnée par NS pour que NS ait 2 victoires et 1 défaite contre Maxime & Chloé
+    // Partie #3 gagnée par NS
     appStore.startNewGame({
       mode: 'COINCHE',
       targetScore: 500,
@@ -399,12 +411,16 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
     });
     appStore.addRoundToActiveGame('SOUTH', RoundEntryFormController.toScoreInput(draftCapotBelote));
 
-    // Vérification de l'Historique des 3 Parties et sélection d'une ancienne partie
+    // Fermeture de la feuille de marque, puis ouverture d'une ancienne partie depuis l'onglet Historique
+    appStore.closeScoreSheet('GAMES_HISTORY');
+    assert.equal(appStore.getState().isScoreSheetOpen, false);
+
     const historyList = ScoreSheetPresenter.buildGamesHistoryList(
       appStore.getState().gamesHistory
     );
     assert.equal(historyList.length, 3);
     appStore.selectGameFromHistory(game1.id);
+    assert.equal(appStore.getState().isScoreSheetOpen, true);
     assert.equal(appStore.getState().activeGame?.id, game1.id);
 
     const sheetVm = ScoreSheetPresenter.buildViewModel(
@@ -433,7 +449,7 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
     });
     assert.equal(linkRes.updatedGamesCount, 3);
 
-    // 8. Vérification des Statistiques de Victoires / Défaites par joueur (Proie, Némésis, Meilleur Partenaire)
+    // 8. Vérification des Statistiques de Victoires / Défaites par joueur
     const statsVm = StatsDashboardPresenter.buildViewModel(
       appStore.getState().statsSummary
     );

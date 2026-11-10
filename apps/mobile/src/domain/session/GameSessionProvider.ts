@@ -49,7 +49,10 @@ export interface GameSessionProvider {
 
   // --- Actions Phase 1 (Utilisées par ManualScoreKeeperSession) ---
   recordManualRound(input: RoundScoreInput): Promise<RoundScoreResult>;
-  undoLastRound(): Promise<void>;
+  updateManualRound(
+    roundNumber: number,
+    input: RoundScoreInput
+  ): Promise<RoundScoreResult>;
 
   // --- Actions Phase 2 (Implémentées dans P2PHostSession & DedicatedServerSession) ---
   submitBid?(bid: Bid | 'PASS' | 'COINCHE' | 'SURCOINCHE'): Promise<void>;
@@ -125,22 +128,54 @@ export class ManualScoreKeeperSession implements GameSessionProvider {
     return scoreResult;
   }
 
-  public async undoLastRound(): Promise<void> {
-    if (this.state.rounds.length === 0) return;
+  /**
+   * Modifie une donne existante (numéro `roundNumber`) et recalcule les totaux de la partie
+   */
+  public async updateManualRound(
+    roundNumber: number,
+    input: RoundScoreInput
+  ): Promise<RoundScoreResult> {
+    const targetIdx = this.state.rounds.findIndex(
+      (r) => r.roundNumber === roundNumber
+    );
+    if (targetIdx === -1) {
+      throw new Error(`Donne #${roundNumber} introuvable dans cette partie.`);
+    }
 
-    const removed = this.state.rounds[this.state.rounds.length - 1];
-    const remaining = this.state.rounds.slice(0, -1);
-
-    this.state = {
-      ...this.state,
-      currentRoundNumber: removed.roundNumber,
-      dealerSeat: removed.dealer,
-      totalScoreNS: this.state.totalScoreNS - removed.scoreResult.finalScoreNS,
-      totalScoreEW: this.state.totalScoreEW - removed.scoreResult.finalScoreEW,
-      rounds: remaining,
+    const scoreResult = ScoreEngine.computeRoundScore(input);
+    const existing = this.state.rounds[targetIdx];
+    const updatedSnapshot: RoundSummarySnapshot = {
+      ...existing,
+      input,
+      scoreResult,
     };
 
+    const updatedRounds = this.state.rounds.map((r, i) =>
+      i === targetIdx ? updatedSnapshot : r
+    );
+    const totalScoreNS = updatedRounds.reduce(
+      (sum, r) => sum + r.scoreResult.finalScoreNS,
+      0
+    );
+    const totalScoreEW = updatedRounds.reduce(
+      (sum, r) => sum + r.scoreResult.finalScoreEW,
+      0
+    );
+
+    const nextState: GameSessionState = {
+      ...this.state,
+      totalScoreNS,
+      totalScoreEW,
+      rounds: updatedRounds,
+    };
+
+    if (this.onPersistRound) {
+      await this.onPersistRound(updatedSnapshot, nextState);
+    }
+
+    this.state = nextState;
     this.notify();
+    return scoreResult;
   }
 
   public async dispose(): Promise<void> {

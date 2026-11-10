@@ -151,6 +151,27 @@ export class RoundEntryFormController {
     return ScoreEngine.computeRoundScore(this.toScoreInput(draft));
   }
 
+  /**
+   * Pré-remplit le brouillon d'édition à partir d'une donne existante pour pouvoir la modifier
+   */
+  public static fromExistingInput(input: RoundScoreInput): RoundEntryDraft {
+    return {
+      rules: input.rules,
+      takerSeat: input.takerSeat,
+      trump: input.trump,
+      contractType: input.contractType,
+      contractValue: input.contractValue,
+      coincheLevel: input.coincheLevel,
+      coincherSeat: input.coincherSeat,
+      pointsEnteredForTeam: 'NS',
+      pointsEnteredValue: input.rawTrickPointsNS,
+      capotAchievedBy: input.capotAchievedBy,
+      generaleAchievedByTaker: input.generaleAchievedByTaker,
+      beloteTeam: input.beloteTeam,
+      declarations: input.declarations ?? [],
+    };
+  }
+
   public static getAvailableAnnouncementTypes(): AnnouncementType[] {
     return [
       AnnouncementType.TIERCE,
