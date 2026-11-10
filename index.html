@@ -1792,13 +1792,6 @@
                   >
                     ✏️ Renommer
                   </button>
-                  <button
-                    type="button"
-                    onclick="deleteGameById('${g.id}')"
-                    class="px-2 py-0.5 rounded bg-slate-800 border border-rose-500/40 text-rose-300 text-[10px] font-bold"
-                  >
-                    🗑️ Supprimer
-                  </button>
                 </div>
                 <h3 class="text-sm font-black text-white truncate">${g.title}</h3>
                 <p class="text-[10px] text-slate-400">${g.date} • ${g.rounds.length} donne(s) • Cible ${g.targetScore}</p>
@@ -1825,26 +1818,6 @@
 
       document.getElementById('historyGrid').innerHTML = gamesDatabase.map(cardHTML).join('');
       document.getElementById('quickResumeList').innerHTML = gamesDatabase.slice(0, 2).map(cardHTML).join('');
-    }
-
-    async function deleteGameById(gameId) {
-      gamesDatabase = gamesDatabase.filter(g => g.id !== gameId);
-      if (activeGameId === gameId) {
-        activeGameId = gamesDatabase[0] ? gamesDatabase[0].id : null;
-      }
-      savePersistedState();
-      renderHistoryLists();
-      computeAndRenderDynamicStats();
-      updateNetworkUI();
-
-      if (isEffectivelyOnline() && supabaseConfig.url && supabaseConfig.anonKey) {
-        try {
-          await supabaseFetch(`${supabaseConfig.url}/rest/v1/games?id=eq.${encodeURIComponent(gameId)}`, {
-            method: 'DELETE'
-          });
-        } catch (_e) {}
-      }
-      showToast('🗑️ Partie supprimée.', 'info');
     }
 
     // --- STATISTIQUES DYNAMIQUES (TOUTES PARTIES : MON TÉLÉPHONE + TÉLÉPHONES D'AMIS) ---
@@ -2513,17 +2486,20 @@
 
       try {
         const [gamesRes, partsRes, roundsRes] = await Promise.all([
-          supabaseFetch(`${supabaseConfig.url}/rest/v1/games?is_deleted=eq.false&order=started_at.desc&limit=100`),
+          supabaseFetch(`${supabaseConfig.url}/rest/v1/games?is_deleted=eq.false&order=started_at.desc&limit=1000`),
           supabaseFetch(`${supabaseConfig.url}/rest/v1/game_participants?select=*`),
           supabaseFetch(`${supabaseConfig.url}/rest/v1/game_rounds?is_deleted=eq.false&order=round_number.asc`)
         ]);
 
         if (!gamesRes.ok) return 0;
         const cloudGames = await gamesRes.json();
+        if (!Array.isArray(cloudGames)) return 0;
         const allParts = partsRes.ok ? await partsRes.json() : [];
         const allRounds = roundsRes.ok ? await roundsRes.json() : [];
 
-        // 1. Nettoyage automatique : si une partie déjà synchronisée ('SYNCED') a été supprimée dans Supabase, on la retire de l'application !
+        // 1. Nettoyage automatique (uniquement en ligne quand Supabase répond) :
+        // si une partie déjà synchronisée ('SYNCED') a été supprimée dans la base Supabase, on la retire du cache local.
+        // Hors ligne, cette fonction s'arrête plus haut et toutes les parties restent visibles dans l'application.
         const cloudGameIds = new Set(cloudGames.map(cg => cg.id));
         gamesDatabase = gamesDatabase.filter(loc => {
           if (loc.syncStatus === 'SYNCED' && !cloudGameIds.has(loc.id)) {
