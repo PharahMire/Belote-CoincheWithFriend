@@ -904,11 +904,11 @@
           ? (cachedFriends.length > 0
               ? `<div class="flex flex-wrap gap-1.5 pt-1">
                   ${cachedFriends.map(f => `
-                    <button type="button" onclick="pickCachedFriend('${m.seat}', '${f.username}', '${f.code}')"
+                    <button type="button" onclick="pickCachedFriend('${m.seat}', '${f.username}', '${f.code}', '${f.profileId || ''}')"
                       class="px-2.5 py-1.5 rounded-lg text-xs font-bold border transition ${
                         cfg.name === f.username ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'
                       }">
-                      ${f.username}
+                      ${f.username} <span class="opacity-75 text-[10px]">(${f.code})</span>
                     </button>
                   `).join('')}
                 </div>`
@@ -956,21 +956,29 @@
       if (linkType === 'FRIEND') {
         if (cachedFriends.length > 0) {
           cfg.name = cachedFriends[0].username;
+          cfg.code = cachedFriends[0].code;
+          cfg.profileId = cachedFriends[0].profileId || null;
           cfg.badge = `👥 ${cachedFriends[0].code}`;
         } else {
+          cfg.code = null;
+          cfg.profileId = null;
           cfg.badge = '👥 Aucun ami';
         }
       } else {
+        cfg.code = null;
+        cfg.profileId = null;
         cfg.badge = '👤 Invité';
       }
       renderSeatsConfigGrid();
       refreshInitialDealerButtons();
     }
 
-    function pickCachedFriend(seat, username, code) {
+    function pickCachedFriend(seat, username, code, profileId = null) {
       newGameConfig.seats[seat] = {
         linkType: 'FRIEND',
         name: username,
+        code: code || null,
+        profileId: profileId || null,
         badge: `👥 ${code}`
       };
       renderSeatsConfigGrid();
@@ -989,6 +997,30 @@
         EAST: newGameConfig.seats.EAST.name,
         WEST: newGameConfig.seats.WEST.name
       };
+    }
+
+    function getDraftSeatMetaMap() {
+      const meta = {};
+      SEAT_ORDER.forEach(seat => {
+        if (seat === 'NORTH') {
+          meta.NORTH = {
+            name: currentUser.username,
+            code: currentUser.friendCode || null,
+            profileId: currentUser.id || null
+          };
+          return;
+        }
+        const s = newGameConfig.seats[seat];
+        const matchedFriend = cachedFriends.find(
+          f => (s.code && f.code === s.code) || (s.name && f.username && f.username.toLowerCase() === s.name.toLowerCase())
+        );
+        meta[seat] = {
+          name: s.name,
+          code: s.code || (matchedFriend ? matchedFriend.code : null),
+          profileId: s.profileId || (matchedFriend ? matchedFriend.profileId : null)
+        };
+      });
+      return meta;
     }
 
     function computeDefaultGameTitle(mode, players, gameNumber) {
@@ -1105,6 +1137,10 @@
       computeAndRenderDynamicStats();
       renderAccountTabUI();
       updateDefaultTitlePreview();
+
+      if (tab === 'history' || tab === 'stats') {
+        pullGamesFromSupabase();
+      }
     }
 
     function openScoreSheet(gameId) {
@@ -1131,6 +1167,7 @@
 
     function createAndOpenScoreSheet() {
       const players = getDraftPlayersMap();
+      const seatMeta = getDraftSeatMetaMap();
       const customTitle = document.getElementById('newGameTitle').value.trim();
       const finalTitle = customTitle.length > 0
         ? customTitle
@@ -1141,6 +1178,7 @@
 
       gamesDatabase.unshift({
         id: newId,
+        createdBy: currentUser.id,
         title: finalTitle,
         date: nowStr,
         startedAtIso: new Date().toISOString(),
@@ -1150,6 +1188,7 @@
         syncStatus: 'DIRTY',
         currentDealerSeat: newGameConfig.initialDealerSeat,
         players,
+        seatMeta,
         rounds: []
       });
 
@@ -1688,6 +1727,35 @@
       document.getElementById('barEW').style.width = (forceFullEW ? 100 : Math.min(100, Math.round((totEW / g.targetScore) * 100))) + '%';
     }
 
+    // Identifie la place (NORTH, SOUTH, EAST, WEST) occupée par le joueur actuel dans une partie
+    function findMySeatInGame(g) {
+      if (!g) return 'NORTH';
+      const myCode = (currentUser.friendCode || '').trim().toUpperCase();
+      const myId = currentUser.id;
+      const myName = (currentUser.username || '').trim().toLowerCase();
+
+      // 1. Par ID de profil ou Code Ami (BLT-XXXXX) dans seatMeta
+      if (g.seatMeta) {
+        for (const seat of SEAT_ORDER) {
+          const m = g.seatMeta[seat];
+          if (!m) continue;
+          if (myId && m.profileId && m.profileId === myId) return seat;
+          if (myCode && m.code && m.code.trim().toUpperCase() === myCode) return seat;
+        }
+      }
+
+      // 2. Par Pseudo ou Code Ami dans g.players
+      if (g.players) {
+        for (const seat of SEAT_ORDER) {
+          const pVal = (g.players[seat] || '').trim();
+          if (myCode && pVal.toUpperCase() === myCode) return seat;
+          if (myName && myName !== 'joueur 1' && pVal.toLowerCase() === myName) return seat;
+        }
+      }
+
+      return 'NORTH';
+    }
+
     function renderHistoryLists() {
       document.getElementById('historyCountBadge').textContent = gamesDatabase.length;
 
@@ -1702,6 +1770,9 @@
         const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
         const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
         const locked = isGameScoreLocked(g);
+        const mySeat = findMySeatInGame(g);
+        const myTeam = (mySeat === 'NORTH' || mySeat === 'SOUTH') ? 'NS' : 'EW';
+        const isSharedFromFriend = Boolean(g.createdBy && currentUser.id && g.createdBy !== currentUser.id);
         return `
           <div class="p-3.5 rounded-2xl border border-slate-800 bg-slate-900/90 space-y-2.5">
             <div class="flex items-start justify-between gap-2">
@@ -1710,6 +1781,7 @@
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded ${
                     g.syncStatus === 'SYNCED' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
                   }">${g.syncStatus === 'SYNCED' ? '☁️ Synchronisée' : '⏳ Non synchronisée'}</span>
+                  ${isSharedFromFriend ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded bg-cyan-500/20 text-cyan-300">👥 Partagée (${SEAT_LABELS[mySeat]} • Éq. ${myTeam === 'NS' ? 'NS' : 'EO'})</span>` : ''}
                   <span class="text-[10px] font-bold px-2 py-0.5 rounded ${
                     locked ? 'bg-purple-500/20 text-purple-300' : 'bg-blue-500/20 text-blue-300'
                   }">${locked ? '🔒 Terminée & Verrouillée' : '▶️ En cours'}</span>
@@ -1748,7 +1820,7 @@
       document.getElementById('quickResumeList').innerHTML = gamesDatabase.slice(0, 2).map(cardHTML).join('');
     }
 
-    // --- STATISTIQUES DYNAMIQUES ---
+    // --- STATISTIQUES DYNAMIQUES (TOUTES PARTIES : MON TÉLÉPHONE + TÉLÉPHONES D'AMIS) ---
     function computeAndRenderDynamicStats() {
       let completed = 0;
       let wins = 0;
@@ -1760,35 +1832,57 @@
       const oppMap = {};
       const partMap = {};
 
+      // Réinitialisation par défaut des libellés si 0 stat
+      document.getElementById('statBestPartnerName').textContent = '—';
+      document.getElementById('statBestPartnerSub').textContent = 'Jouez une partie';
+      document.getElementById('statDuoName').textContent = '—';
+      document.getElementById('statDuoDetail').textContent = 'Aucune partie terminée';
+      document.getElementById('statPreyName').textContent = '—';
+      document.getElementById('statPreyDetail').textContent = 'Aucune victoire enregistrée';
+      document.getElementById('statNemesisName').textContent = '—';
+      document.getElementById('statNemesisDetail').textContent = 'Aucune défaite enregistrée';
+
       gamesDatabase.forEach(g => {
         const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
         const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
         const isComp = isGameScoreLocked(g);
 
-        if (isComp && g.rounds.length > 0) {
+        const mySeat = findMySeatInGame(g);
+        const myTeam = (mySeat === 'NORTH' || mySeat === 'SOUTH') ? 'NS' : 'EW';
+        const partnerSeat = mySeat === 'NORTH' ? 'SOUTH' : mySeat === 'SOUTH' ? 'NORTH' : mySeat === 'EAST' ? 'WEST' : 'EAST';
+        const oppSeats = myTeam === 'NS' ? ['EAST', 'WEST'] : ['NORTH', 'SOUTH'];
+
+        if (isComp && (g.rounds.length > 0 || totNS > 0 || totEW > 0)) {
           completed++;
-          const nsWon = totNS >= totEW;
-          if (nsWon) wins++;
+          const myTeamWon = myTeam === 'NS' ? (totNS >= totEW) : (totEW > totNS);
+          if (myTeamWon) wins++;
 
-          const partner = g.players.SOUTH || 'Sud';
+          const partner = (g.players && g.players[partnerSeat]) || SEAT_LABELS[partnerSeat];
           partMap[partner] = partMap[partner] || { w: 0, l: 0 };
-          if (nsWon) partMap[partner].w++; else partMap[partner].l++;
+          if (myTeamWon) partMap[partner].w++; else partMap[partner].l++;
 
-          [g.players.EAST, g.players.WEST].forEach(op => {
+          oppSeats.forEach(os => {
+            const op = g.players && g.players[os];
             if (!op) return;
             oppMap[op] = oppMap[op] || { w: 0, l: 0 };
-            if (nsWon) oppMap[op].w++; else oppMap[op].l++;
+            if (myTeamWon) oppMap[op].w++; else oppMap[op].l++;
           });
         }
 
         g.rounds.forEach(r => {
           totalRounds++;
-          if (r.taker === 'NS') {
+          if (r.taker === myTeam) {
             taken++;
             if (r.isSuccess) fulfilled++;
           }
-          if (r.trickLabelNS === 'Capot' || r.trickLabelNS === 'Capot B' || r.trickLabelNS === 'Générale') {
-            capots++;
+          if (myTeam === 'NS') {
+            if (r.ptsNS === 252 || r.trickLabelNS === 'Capot' || r.trickLabelNS === 'Capot B' || r.trickLabelNS === 'Générale') {
+              capots++;
+            }
+          } else {
+            if (r.ptsEW === 252 || r.trickLabelEW === 'Capot' || r.trickLabelEW === 'Capot B' || r.trickLabelEW === 'Générale') {
+              capots++;
+            }
           }
         });
       });
@@ -2165,7 +2259,214 @@
       }
     }
 
-    // --- SYNCHRONISATION SUPABASE ROBUSTE (RPC + FALLBACK REST UPSERT) ---
+    // Reconstruction des joueurs d'une partie distante (depuis rules_config, game_participants ou le titre)
+    function extractPlayersAndSeatMetaFromCloudGame(cg, partRows) {
+      const rc = cg.rules_config || {};
+      const players = Object.assign(
+        { NORTH: 'Nord', SOUTH: 'Sud', EAST: 'Est', WEST: 'Ouest' },
+        rc.players || {}
+      );
+      const seatMeta = Object.assign(
+        { NORTH: {}, SOUTH: {}, EAST: {}, WEST: {} },
+        rc.seatMeta || {}
+      );
+
+      // Depuis public.game_participants s'il y a des lignes
+      (partRows || []).forEach(p => {
+        if (!p.seat || !SEAT_ORDER.includes(p.seat)) return;
+        if (p.guest_name) players[p.seat] = p.guest_name;
+        seatMeta[p.seat] = {
+          name: p.guest_name || players[p.seat],
+          code: p.claim_code || (seatMeta[p.seat] && seatMeta[p.seat].code) || null,
+          profileId: p.profile_id || (seatMeta[p.seat] && seatMeta[p.seat].profileId) || null
+        };
+      });
+
+      // Fallback automatique depuis le titre ex: "Soirée Coinche #2 (Augustin/Augustin2 vs Adversaire 1/Adversaire 2)"
+      if (!rc.players && (!partRows || partRows.length === 0) && cg.title) {
+        const m = cg.title.match(/\(([^/]+)\/([^)]+?)\s+vs\s+([^/]+)\/([^)]+)\)/i);
+        if (m) {
+          players.NORTH = m[1].trim();
+          players.SOUTH = m[2].trim();
+          players.EAST  = m[3].trim();
+          players.WEST  = m[4].trim();
+        }
+      }
+
+      return { players, seatMeta };
+    }
+
+    function doesCloudGameInvolveCurrentUser(cg, players, seatMeta, partRows) {
+      const myId = currentUser.id;
+      const myCode = (currentUser.friendCode || '').trim().toUpperCase();
+      const myName = (currentUser.username || '').trim().toLowerCase();
+
+      if (myId && cg.created_by === myId) return true;
+
+      for (const seat of SEAT_ORDER) {
+        const sm = (seatMeta && seatMeta[seat]) || {};
+        if (myId && sm.profileId && sm.profileId === myId) return true;
+        if (myCode && sm.code && sm.code.trim().toUpperCase() === myCode) return true;
+
+        const pName = ((players && players[seat]) || '').trim();
+        if (myCode && pName.toUpperCase() === myCode) return true;
+        if (myName && myName !== 'joueur 1' && pName.toLowerCase() === myName) return true;
+      }
+
+      for (const p of (partRows || [])) {
+        if (myId && p.profile_id === myId) return true;
+        if (myCode && p.claim_code && p.claim_code.trim().toUpperCase() === myCode) return true;
+        if (myName && myName !== 'joueur 1' && p.guest_name && p.guest_name.trim().toLowerCase() === myName) return true;
+      }
+
+      return false;
+    }
+
+    function mapCloudRoundToLocal(r) {
+      const isCapotNS = Boolean(r.is_capot_achieved && r.capot_team === 'NS');
+      const isCapotEW = Boolean(r.is_capot_achieved && r.capot_team === 'EW');
+      const ptsNS = isCapotNS ? 252 : (r.raw_trick_points_ns || 0);
+      const ptsEW = isCapotEW ? 252 : (r.raw_trick_points_ew || 0);
+      const mult = r.coinche_status === 'SURCOINCHE' ? 4 : r.coinche_status === 'COINCHE' ? 2 : 1;
+      const cType = r.contract_type === 'NORMAL' ? 'NUMBER' : (r.contract_type || 'NUMBER');
+
+      return {
+        id: r.id,
+        num: r.round_number,
+        dealerSeat: r.dealer_seat || 'NORTH',
+        taker: r.taker_team || 'NS',
+        suit: r.trump || 'SPADES',
+        contractType: cType,
+        contractVal: r.contract_value || 80,
+        mult,
+        ptsNS,
+        ptsEW,
+        trickLabelNS: isCapotNS ? (cType === 'GENERALE' ? 'Générale' : 'Capot') : String(ptsNS),
+        trickLabelEW: isCapotEW ? (cType === 'GENERALE' ? 'Générale' : 'Capot') : String(ptsEW),
+        beloteBy: r.belote_team || 'NONE',
+        annNS: r.announcement_points_ns || 0,
+        annEW: r.announcement_points_ew || 0,
+        isSuccess: Boolean(r.is_contract_fulfilled),
+        scoreNS: r.final_points_ns || 0,
+        scoreEW: r.final_points_ew || 0
+      };
+    }
+
+    // Télécharge depuis Supabase toutes les parties où le joueur apparaît (créées sur son téléphone ou celui d'un ami)
+    async function pullGamesFromSupabase() {
+      if (!isEffectivelyOnline() || !supabaseConfig.url || !supabaseConfig.anonKey) return 0;
+
+      try {
+        const [gamesRes, partsRes, roundsRes] = await Promise.all([
+          fetch(`${supabaseConfig.url}/rest/v1/games?is_deleted=eq.false&order=started_at.desc&limit=100`, {
+            headers: buildSupabaseHeaders()
+          }),
+          fetch(`${supabaseConfig.url}/rest/v1/game_participants?select=*`, {
+            headers: buildSupabaseHeaders()
+          }),
+          fetch(`${supabaseConfig.url}/rest/v1/game_rounds?is_deleted=eq.false&order=round_number.asc`, {
+            headers: buildSupabaseHeaders()
+          })
+        ]);
+
+        if (!gamesRes.ok) return 0;
+        const cloudGames = await gamesRes.json();
+        const allParts = partsRes.ok ? await partsRes.json() : [];
+        const allRounds = roundsRes.ok ? await roundsRes.json() : [];
+
+        let pulledCount = 0;
+
+        for (const cg of cloudGames) {
+          const partRows = allParts.filter(p => p.game_id === cg.id);
+          const { players, seatMeta } = extractPlayersAndSeatMetaFromCloudGame(cg, partRows);
+
+          if (!doesCloudGameInvolveCurrentUser(cg, players, seatMeta, partRows)) {
+            continue;
+          }
+
+          const dbRoundRows = allRounds.filter(r => r.game_id === cg.id);
+          let mappedRounds = dbRoundRows.map(mapCloudRoundToLocal);
+
+          // Si une ancienne partie a un score total mais 0 ligne dans game_rounds, on préserve son score
+          if (mappedRounds.length === 0 && ((cg.score_ns || 0) > 0 || (cg.score_ew || 0) > 0)) {
+            mappedRounds = [{
+              id: generateUuid(),
+              num: 1,
+              dealerSeat: 'NORTH',
+              taker: (cg.score_ns || 0) >= (cg.score_ew || 0) ? 'NS' : 'EW',
+              suit: 'SPADES',
+              contractType: 'NUMBER',
+              contractVal: 100,
+              mult: 1,
+              ptsNS: (cg.score_ns || 0) >= (cg.score_ew || 0) ? 100 : 62,
+              ptsEW: (cg.score_ns || 0) >= (cg.score_ew || 0) ? 62 : 100,
+              trickLabelNS: '100',
+              trickLabelEW: '62',
+              beloteBy: 'NONE',
+              annNS: 0,
+              annEW: 0,
+              isSuccess: true,
+              scoreNS: cg.score_ns || 0,
+              scoreEW: cg.score_ew || 0
+            }];
+          }
+
+          const dateStr = cg.started_at
+            ? new Date(cg.started_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+            : 'Récemment';
+
+          const existingIdx = gamesDatabase.findIndex(loc => loc.id === cg.id);
+          if (existingIdx >= 0) {
+            const loc = gamesDatabase[existingIdx];
+            // Ne pas écraser une partie locale modifiée hors-ligne non encore poussée
+            if (loc.syncStatus === 'SYNCED' || mappedRounds.length > (loc.rounds || []).length) {
+              loc.createdBy = cg.created_by;
+              loc.title = cg.title || loc.title;
+              loc.mode = cg.mode || loc.mode;
+              loc.targetScore = cg.target_score || loc.targetScore;
+              loc.status = cg.status || loc.status;
+              loc.syncStatus = 'SYNCED';
+              loc.players = players;
+              loc.seatMeta = seatMeta;
+              if (mappedRounds.length >= (loc.rounds || []).length) {
+                loc.rounds = mappedRounds;
+              }
+              pulledCount++;
+            }
+          } else {
+            gamesDatabase.push({
+              id: cg.id,
+              createdBy: cg.created_by,
+              title: cg.title || computeDefaultGameTitle(cg.mode, players, gamesDatabase.length + 1),
+              date: dateStr,
+              startedAtIso: cg.started_at || new Date().toISOString(),
+              mode: cg.mode || 'COINCHE',
+              targetScore: cg.target_score || 2000,
+              status: cg.status || 'IN_PROGRESS',
+              syncStatus: 'SYNCED',
+              currentDealerSeat: (cg.rules_config && cg.rules_config.currentDealerSeat) || 'NORTH',
+              players,
+              seatMeta,
+              rounds: mappedRounds
+            });
+            pulledCount++;
+          }
+        }
+
+        // Trier par date décroissante
+        gamesDatabase.sort((a, b) => new Date(b.startedAtIso || 0) - new Date(a.startedAtIso || 0));
+        savePersistedState();
+        renderHistoryLists();
+        computeAndRenderDynamicStats();
+        if (activeGameId) renderActiveGame();
+        updateNetworkUI();
+        return pulledCount;
+      } catch (_e) {
+        return 0;
+      }
+    }
+
+    // --- SYNCHRONISATION SUPABASE BIDIRECTIONNELLE (PUSH LOCAL + PULL PARTIES PARTAGÉES) ---
     async function syncWithSupabaseNow(showUserFeedback = false) {
       updateNetworkUI();
 
@@ -2182,41 +2483,73 @@
         return;
       }
 
-      if (!currentUser.accessToken) {
-        if (showUserFeedback) {
-          showToast('🔑 Connectez-vous à votre compte dans l\'onglet 👤 Compte pour synchroniser.', 'error');
-          switchHomeTab('accounts');
-        }
-        return;
-      }
-
-      const dirtyGames = gamesDatabase.filter(g => g.syncStatus !== 'SYNCED');
-      if (dirtyGames.length === 0) {
-        if (showUserFeedback) showToast('☁️ Toutes vos parties sont déjà synchronisées sur Supabase !', 'success');
-        return;
-      }
-
-      if (showUserFeedback) showToast('🔄 Synchronisation vers Supabase en cours...', 'info');
+      if (showUserFeedback) showToast('🔄 Synchronisation avec Supabase en cours...', 'info');
 
       try {
-        // 1. S'assurer que le profil existe dans public.profiles
+        // 1. S'assurer que le profil et le vrai Code Ami (BLT-XXXXX) sont chargés
         await ensureMyProfileExistsInSupabase();
+        await refreshCachedFriendsFromSupabase();
 
-        // 2. Synchronisation directe vers public.games et public.game_rounds
+        const dirtyGames = gamesDatabase.filter(g => g.syncStatus !== 'SYNCED');
+
+        if (dirtyGames.length > 0 && !currentUser.accessToken) {
+          await pullGamesFromSupabase();
+          if (showUserFeedback) {
+            showToast('🔑 Connectez-vous dans l\'onglet 👤 Compte pour envoyer vos nouvelles parties.', 'error');
+            switchHomeTab('accounts');
+          }
+          return;
+        }
+
+        // 2. PUSH : Envoyer les parties locales modifiées vers public.games, public.game_participants et public.game_rounds
         for (const g of dirtyGames) {
           const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
           const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
           const isComp = g.status === 'COMPLETED' || totNS >= g.targetScore || totEW >= g.targetScore;
           if (isComp) g.status = 'COMPLETED';
 
+          // Enrichir seatMeta avec les codes amis connus dans cachedFriends si besoin
+          g.seatMeta = g.seatMeta || {};
+          SEAT_ORDER.forEach(seat => {
+            const pName = (g.players && g.players[seat]) || SEAT_LABELS[seat];
+            const existingMeta = g.seatMeta[seat] || {};
+            if (seat === 'NORTH' && (!existingMeta.code || !existingMeta.profileId)) {
+              g.seatMeta.NORTH = {
+                name: pName,
+                code: existingMeta.code || currentUser.friendCode || null,
+                profileId: existingMeta.profileId || currentUser.id || null
+              };
+            } else {
+              const matchedFriend = cachedFriends.find(
+                f => (existingMeta.code && f.code === existingMeta.code) || (pName && f.username && f.username.toLowerCase() === pName.toLowerCase())
+              );
+              g.seatMeta[seat] = {
+                name: pName,
+                code: existingMeta.code || (matchedFriend ? matchedFriend.code : null),
+                profileId: existingMeta.profileId || (matchedFriend ? matchedFriend.profileId : null)
+              };
+            }
+          });
+
           const hlc = `${Date.now()}:0001:pwa`;
           const gameRow = {
             id: g.id,
-            created_by: currentUser.id,
+            created_by: g.createdBy || currentUser.id,
             title: g.title,
             mode: g.mode,
             status: g.status,
             target_score: g.targetScore,
+            rules_config: {
+              scoringStyle: 'POINTS_PLUS_CONTRACT',
+              enableAnnouncements: true,
+              allowNoTrumpAllTrump: true,
+              beloteCountsTowardsContract: true,
+              normalizeNoTrumpAllTrumpTo162: true,
+              announcementsCountTowardsContract: true,
+              players: g.players,
+              seatMeta: g.seatMeta,
+              currentDealerSeat: g.currentDealerSeat || 'NORTH'
+            },
             score_ns: totNS,
             score_ew: totEW,
             winner_team: isComp ? (totNS >= totEW ? 'NS' : 'EW') : null,
@@ -2231,7 +2564,6 @@
             body: JSON.stringify(gameRow)
           });
 
-          // Fallback si la colonne `title` n'a pas encore été ajoutée dans la table `public.games` de l'utilisateur
           if (!gameRes.ok) {
             const { title, ...gameRowWithoutTitle } = gameRow;
             gameRes = await fetch(`${supabaseConfig.url}/rest/v1/games`, {
@@ -2246,6 +2578,26 @@
             throw new Error(`Erreur table games: ${errTxt}`);
           }
 
+          // Synchroniser les 4 participants dans public.game_participants
+          const participantRows = SEAT_ORDER.map(seat => {
+            const sm = (g.seatMeta && g.seatMeta[seat]) || {};
+            const pName = (g.players && g.players[seat]) || SEAT_LABELS[seat];
+            return {
+              id: sm.participantId || generateUuid(),
+              game_id: g.id,
+              seat,
+              team: (seat === 'NORTH' || seat === 'SOUTH') ? 'NS' : 'EW',
+              profile_id: sm.profileId || null,
+              guest_name: pName,
+              claim_code: sm.code || null
+            };
+          });
+          await fetch(`${supabaseConfig.url}/rest/v1/game_participants?on_conflict=game_id,seat`, {
+            method: 'POST',
+            headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates' }),
+            body: JSON.stringify(participantRows)
+          });
+
           // Synchroniser chaque donne dans public.game_rounds
           for (const r of g.rounds) {
             const roundRow = {
@@ -2256,7 +2608,7 @@
               taker_seat: r.taker === 'NS' ? 'NORTH' : 'EAST',
               taker_team: r.taker,
               trump: r.suit,
-              contract_type: r.contractType === 'CAPOT_BELOTE' ? 'CAPOT' : r.contractType,
+              contract_type: r.contractType === 'CAPOT_BELOTE' ? 'CAPOT' : (r.contractType === 'NUMBER' ? 'NORMAL' : r.contractType),
               contract_value: r.contractVal,
               coinche_status: r.mult === 4 ? 'SURCOINCHE' : r.mult === 2 ? 'COINCHE' : 'NONE',
               raw_trick_points_ns: Math.min(162, r.ptsNS),
@@ -2272,7 +2624,7 @@
               client_hlc: hlc
             };
 
-            await fetch(`${supabaseConfig.url}/rest/v1/game_rounds`, {
+            await fetch(`${supabaseConfig.url}/rest/v1/game_rounds?on_conflict=game_id,round_number`, {
               method: 'POST',
               headers: buildSupabaseHeaders({ Prefer: 'resolution=merge-duplicates' }),
               body: JSON.stringify(roundRow)
@@ -2282,11 +2634,18 @@
           g.syncStatus = 'SYNCED';
         }
 
+        // 3. PULL : Récupérer les parties jouées sur d'autres téléphones où l'utilisateur apparaît
+        await pullGamesFromSupabase();
+
         savePersistedState();
         renderActiveGame();
         renderHistoryLists();
+        computeAndRenderDynamicStats();
         updateNetworkUI();
-        showToast(`✅ ${dirtyGames.length} partie(s) synchronisée(s) sur Supabase !`, 'success');
+
+        if (showUserFeedback) {
+          showToast(`✅ Synchronisation terminée (${gamesDatabase.length} partie(s) au total) !`, 'success');
+        }
       } catch (err) {
         updateNetworkUI();
         if (showUserFeedback) {
@@ -2341,9 +2700,12 @@
     renderAccountTabUI();
     updateDefaultTitlePreview();
     updateNetworkUI();
-    // Synchronise automatiquement le Code Ami officiel (BLT-XXXXX) depuis public.profiles dès l'ouverture
-    ensureMyProfileExistsInSupabase();
-    refreshCachedFriendsFromSupabase();
+    // Synchronise automatiquement le profil, les amis ET récupère les parties jouées sur d'autres téléphones dès l'ouverture
+    (async () => {
+      await ensureMyProfileExistsInSupabase();
+      await refreshCachedFriendsFromSupabase();
+      await pullGamesFromSupabase();
+    })();
   </script>
 </body>
 </html>
