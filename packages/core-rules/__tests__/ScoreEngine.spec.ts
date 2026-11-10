@@ -469,6 +469,26 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
     assert.equal(mergeRes.migratedGamesCount, 3);
     assert.equal(appStore.getState().syncStatus.connectivity, 'ONLINE_SYNCED');
 
+    // 6bis. Une fois la partie terminée ET synchronisée, les scores/donnes sont verrouillés !
+    const syncedSheetVm = ScoreSheetPresenter.buildViewModel(
+      appStore.getState().activeGame!,
+      appStore.getState().syncStatus
+    );
+    assert.equal(syncedSheetVm.isScoreLocked, true);
+    assert.throws(() => {
+      appStore.updateRoundInActiveGame(
+        1,
+        RoundEntryFormController.toScoreInput(draftCapotBelote)
+      );
+    }, /Partie verrouillée/);
+
+    // En revanche, le nom de la partie et la liaison des invités restent modifiables même après synchronisation :
+    const renamedAfterSync = appStore.renameGame(
+      game1.id,
+      'Traversée Corse (Officielle)'
+    );
+    assert.equal(renamedAfterSync.title, 'Traversée Corse (Officielle)');
+
     // 7. Liaison rétroactive de Lucas
     const linkRes = await appStore.linkGuestToFriend({
       claimCode: lucasGuest.claimCode,

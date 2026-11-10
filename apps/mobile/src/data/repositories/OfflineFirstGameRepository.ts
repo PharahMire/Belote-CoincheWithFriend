@@ -271,6 +271,16 @@ export class OfflineFirstGameRepository {
   }
 
   /**
+   * Indique si les scores et donnes d'une partie sont verrouillés :
+   * Une partie TERMINÉE et DÉJÀ SYNCHRONISÉE en ligne ne peut plus voir ses donnes modifiées
+   * afin de préserver l'intégrité des statistiques multi-joueurs.
+   * (Seuls le nom de la partie et la liaison d'un invité restent modifiables).
+   */
+  public static isGameScoreLocked(game: GameRecord): boolean {
+    return game.status === 'COMPLETED' && game.syncStatus === 'SYNCED';
+  }
+
+  /**
    * 4. ENREGISTREMENT D'UNE DONNE (100% Hors-Ligne, < 5ms)
    */
   public recordRound(
@@ -281,6 +291,11 @@ export class OfflineFirstGameRepository {
     const game = this.games.get(gameId);
     if (!game) {
       throw new Error(`Partie introuvable : ${gameId}`);
+    }
+    if (OfflineFirstGameRepository.isGameScoreLocked(game)) {
+      throw new Error(
+        'Partie verrouillée : cette partie est terminée et déjà synchronisée. Seuls le nom de la partie et la liaison des invités peuvent être modifiés.'
+      );
     }
 
     const result = ScoreEngine.computeRoundScore(input);
@@ -330,7 +345,7 @@ export class OfflineFirstGameRepository {
   }
 
   /**
-   * 4bis. MODIFICATION D'UNE DONNE EXISTANTE (Recalcul complet + Sync LWW via HLC)
+   * 4bis. MODIFICATION D'UNE DONNE EXISTANTE (Autorisée uniquement tant que la partie n'est pas terminée+synchronisée)
    */
   public updateRound(
     gameId: string,
@@ -341,6 +356,11 @@ export class OfflineFirstGameRepository {
     const game = this.games.get(gameId);
     if (!game) {
       throw new Error(`Partie introuvable : ${gameId}`);
+    }
+    if (OfflineFirstGameRepository.isGameScoreLocked(game)) {
+      throw new Error(
+        'Partie verrouillée : cette partie est terminée et déjà synchronisée. Seuls le nom de la partie et la liaison des invités peuvent être modifiés.'
+      );
     }
 
     const roundIndex = game.rounds.findIndex(

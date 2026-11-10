@@ -13,6 +13,9 @@ export interface ScoreSheetViewModel {
   readonly progressPctNS: number;
   readonly progressPctEW: number;
   readonly syncBadgeLabel: string;
+  /** Vrai si la partie est terminée ET déjà synchronisée : bloque la modification des donnes mais autorise le renommage et la liaison d'invités */
+  readonly isScoreLocked: boolean;
+  readonly lockReason?: string;
   readonly unlinkedPlayersInGame: ReadonlyArray<{
     seat: string;
     displayName: string;
@@ -162,6 +165,9 @@ export class ScoreSheetPresenter {
         ? `🔄 Synchronisation Cloud en cours...`
         : `☁️ Synchronisé en ligne`;
 
+    const isScoreLocked =
+      game.status === 'COMPLETED' && game.syncStatus === 'SYNCED';
+
     return {
       gameId: game.id,
       title: game.title,
@@ -183,6 +189,10 @@ export class ScoreSheetPresenter {
         Math.round((game.scoreEW / game.targetScore) * 100)
       ),
       syncBadgeLabel,
+      isScoreLocked,
+      lockReason: isScoreLocked
+        ? '🔒 Partie terminée et synchronisée : les scores sont verrouillés (seuls le nom de la partie et la liaison des invités restent modifiables).'
+        : undefined,
       unlinkedPlayersInGame,
       roundsRows,
     };
