@@ -202,6 +202,11 @@
     <!-- ONGLET 3 : STATISTIQUES & RIVALITÉS                                 -->
     <!-- =================================================================== -->
     <section id="view-home-stats" class="hidden space-y-3">
+      <div class="grid grid-cols-3 gap-1.5 p-1 rounded-2xl bg-slate-900/90 border border-slate-800">
+        <button type="button" id="statsFilter-ALL" onclick="setStatsFilter('ALL')" class="py-2 rounded-xl text-[11px] font-bold">Toutes</button>
+        <button type="button" id="statsFilter-COINCHE" onclick="setStatsFilter('COINCHE')" class="py-2 rounded-xl text-[11px] font-bold">Coinche</button>
+        <button type="button" id="statsFilter-BELOTE_CLASSIC" onclick="setStatsFilter('BELOTE_CLASSIC')" class="py-2 rounded-xl text-[11px] font-bold">Belote</button>
+      </div>
       <div class="grid grid-cols-2 gap-2.5">
         <div class="rounded-2xl p-3.5 border border-slate-800 bg-slate-900/90">
           <span class="text-[11px] text-slate-400">Taux de Victoire</span>
@@ -253,6 +258,8 @@
           <div id="statDuoDetail" class="text-xs text-blue-300">Aucune partie terminée</div>
         </div>
       </div>
+
+      <div id="statsDetailedContainer" class="space-y-3"></div>
     </section>
 
     <!-- =================================================================== -->
@@ -536,6 +543,12 @@
         </div>
       </div>
 
+      <!-- 1b. Joueur preneur -->
+      <div class="space-y-1">
+        <label class="text-[11px] text-slate-400 font-bold">Qui a pris ? (pour les statistiques)</label>
+        <div id="takerSeatButtons" class="grid grid-cols-2 gap-2"></div>
+      </div>
+
       <!-- 2. Couleur d'Atout -->
       <div class="space-y-1">
         <label class="text-[11px] text-slate-400 font-bold">2. Atout (Couleur / SA / TA)</label>
@@ -809,6 +822,8 @@
       annNS: 0,
       annEW: 0,
       annLabels: [],
+      annList: [],
+      takerSeat: null,
       trickSpecial: null
     };
 
@@ -1248,8 +1263,13 @@
         state.annNS = r.annNS || 0;
         state.annEW = r.annEW || 0;
         state.annLabels = [];
+        state.takerSeat = r.takerSeat || null;
+        state.annList = Array.isArray(r.annList) ? r.annList.slice() : [];
+        state.annList.forEach(a => state.annLabels.push(`${a.team === 'NS' ? 'NS' : 'EO'}: ${a.label} (+${a.points})`));
+        if (state.annList.length === 0) {
         if (state.annNS > 0) state.annLabels.push(`NS (+${state.annNS})`);
         if (state.annEW > 0) state.annLabels.push(`EO (+${state.annEW})`);
+        }
 
         document.getElementById('formModeTitle').textContent = `✏️ Modifier la Donne #${r.num}`;
         document.getElementById('btnSubmitRound').textContent = `Mettre à jour la Donne #${r.num}`;
@@ -1258,6 +1278,7 @@
         state.dealerSeat = g.currentDealerSeat || 'NORTH';
         state.beloteBy = 'NONE';
         state.trickSpecial = null;
+        state.takerSeat = null;
         state.ptsNS = 100;
         state.ptsEW = 62;
         clearAnnouncements();
@@ -1371,7 +1392,28 @@
       document.getElementById('takerEW').className = team === 'EW'
         ? 'py-2.5 px-3 rounded-xl border text-xs font-bold bg-rose-600/30 border-rose-500 text-white'
         : 'py-2.5 px-3 rounded-xl border text-xs font-bold bg-slate-800 border-slate-700 text-slate-300';
+      renderTakerSeatButtons();
       updatePreview();
+    }
+
+    function renderTakerSeatButtons() {
+      const g = getActiveGame();
+      const c = document.getElementById('takerSeatButtons');
+      if (!c || !g) return;
+      const seats = state.taker === 'NS' ? ['NORTH', 'SOUTH'] : ['EAST', 'WEST'];
+      if (!seats.includes(state.takerSeat)) state.takerSeat = seats[0];
+      c.innerHTML = seats.map(seat => {
+        const active = state.takerSeat === seat;
+        return `<button type="button" onclick="setTakerSeat('${seat}')"
+          class="py-2 px-2 rounded-xl border text-xs font-bold truncate ${
+            active ? 'bg-amber-500/25 border-amber-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'
+          }">${getSeatPlayerName(g, seat)}</button>`;
+      }).join('');
+    }
+
+    function setTakerSeat(seat) {
+      state.takerSeat = seat;
+      renderTakerSeatButtons();
     }
 
     function setSuit(suit) {
@@ -1427,6 +1469,7 @@
     }
 
     function addAnnouncementPoints(points, label) {
+      state.annList.push({ team: state.annTeam, label, points });
       if (state.annTeam === 'NS') {
         state.annNS += points;
         state.annLabels.push(`NS: ${label} (+${points})`);
@@ -1442,6 +1485,7 @@
       state.annNS = 0;
       state.annEW = 0;
       state.annLabels = [];
+      state.annList = [];
       updateAnnouncementSummaryUI();
       updatePreview();
     }
@@ -1614,6 +1658,8 @@
         num: editingRoundIndex !== null ? g.rounds[editingRoundIndex].num : g.rounds.length + 1,
         dealerSeat: state.dealerSeat,
         taker: state.taker,
+        takerSeat: state.takerSeat,
+        annList: state.annList.slice(),
         suit: state.suit,
         contractType: state.contractType,
         contractVal: state.contractVal,
@@ -1844,6 +1890,17 @@
     }
 
     // --- STATISTIQUES DYNAMIQUES (TOUTES PARTIES : MON TÉLÉPHONE + TÉLÉPHONES D'AMIS) ---
+    let statsModeFilter = 'ALL';
+
+    function getFilteredGames() {
+      return gamesDatabase.filter(g => statsModeFilter === 'ALL' || g.mode === statsModeFilter);
+    }
+
+    function setStatsFilter(mode) {
+      statsModeFilter = mode;
+      computeAndRenderDynamicStats();
+    }
+
     function computeAndRenderDynamicStats() {
       let completed = 0;
       let wins = 0;
@@ -1865,7 +1922,7 @@
       document.getElementById('statNemesisName').textContent = '—';
       document.getElementById('statNemesisDetail').textContent = 'Aucune défaite enregistrée';
 
-      gamesDatabase.forEach(g => {
+      getFilteredGames().forEach(g => {
         const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
         const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
         const isComp = isGameScoreLocked(g);
@@ -1942,6 +1999,198 @@
         document.getElementById('statNemesisName').textContent = nName;
         document.getElementById('statNemesisDetail').textContent = `${nStat.l} D — ${nStat.w} V face à ${nName}`;
       }
+
+      ['ALL', 'COINCHE', 'BELOTE_CLASSIC'].forEach(m => {
+        const b = document.getElementById('statsFilter-' + m);
+        if (b) b.className = 'py-2 rounded-xl text-[11px] font-bold ' +
+          (m === statsModeFilter ? 'bg-blue-600 text-white' : 'text-slate-400');
+      });
+      renderDetailedStats();
+    }
+
+    // --- STATISTIQUES DÉTAILLÉES (joueur connecté sur ce téléphone) ---
+    function contractKeyOf(r) {
+      if (r.contractType === 'CAPOT') return 'Capot';
+      if (r.contractType === 'CAPOT_BELOTE') return 'Capot B';
+      if (r.contractType === 'GENERALE') return 'Générale';
+      return String(r.contractVal);
+    }
+    const CONTRACT_KEYS = ['80', '90', '100', '110', '120', '130', '140', '150', '160', 'Capot', 'Capot B', 'Générale'];
+    const SUIT_STAT_KEYS = [
+      ['SPADES', '♠️ Pique'], ['HEARTS', '♥️ Cœur'], ['DIAMONDS', '♦️ Carreau'],
+      ['CLUBS', '♣️ Trèfle'], ['NO_TRUMP', 'Sans Atout'], ['ALL_TRUMP', 'Tout Atout']
+    ];
+
+    function pctOf(a, b) { return b > 0 ? Math.round((a / b) * 100) : 0; }
+
+    function statRow(label, ok, total, extra) {
+      const pct = pctOf(ok, total);
+      return `<div class="space-y-0.5">
+        <div class="flex items-center justify-between text-[11px]">
+          <span class="font-bold text-slate-200">${label}</span>
+          <span class="text-slate-400">${total} parti(s) • <span class="text-emerald-300 font-bold">${ok} réussi(s)</span> • <span class="text-rose-300">${total - ok} chuté(s)</span> • ${pct}%${extra || ''}</span>
+        </div>
+        <div class="h-1.5 rounded-full bg-rose-500/30 overflow-hidden"><div class="h-full bg-emerald-500" style="width:${pct}%"></div></div>
+      </div>`;
+    }
+
+    function statCard(title, inner) {
+      return `<div class="rounded-2xl p-4 border border-slate-800 bg-slate-900/90 space-y-2.5">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300">${title}</h3>${inner}</div>`;
+    }
+
+    function kv(label, value) {
+      return `<div class="flex items-center justify-between text-xs"><span class="text-slate-400">${label}</span><span class="font-bold text-white text-right">${value}</span></div>`;
+    }
+
+    function renderDetailedStats() {
+      const host = document.getElementById('statsDetailedContainer');
+      if (!host) return;
+
+      const contracts = {};
+      CONTRACT_KEYS.forEach(k => contracts[k] = { t: 0, ok: 0 });
+      const suits = {};
+      SUIT_STAT_KEYS.forEach(([k]) => suits[k] = { t: 0, ok: 0 });
+      let myTakes = 0, numSum = 0, numCount = 0;
+      let bestRank = -1, bestLabel = '—';
+      let coincheOnMe = { t: 0, ok: 0 }, coincheByMe = { t: 0, ok: 0 }, surcoincheOnMe = { t: 0, ok: 0 };
+      let capotAnn = { t: 0, ok: 0 }, generaleAnn = { t: 0, ok: 0 }, surpriseCapots = 0, capotsSuffered = 0;
+      let beloteCount = 0, roundsCount = 0;
+      let annTotalPts = 0, annGamesCount = 0;
+      const annTypes = {};
+      let ptsTaking = { sum: 0, n: 0 }, ptsDefending = { sum: 0, n: 0 };
+      const partners = {};
+      const gamesChrono = getFilteredGames().slice().sort((a, b) =>
+        String(a.startedAtIso || '').localeCompare(String(b.startedAtIso || '')));
+      let played = 0, wins = 0, curStreak = 0, bestStreak = 0, biggestWin = null, tightestWin = null;
+
+      gamesChrono.forEach(g => {
+        const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
+        const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
+        const mySeat = findMySeatInGame(g);
+        const myTeam = (mySeat === 'NORTH' || mySeat === 'SOUTH') ? 'NS' : 'EW';
+        const partnerSeat = mySeat === 'NORTH' ? 'SOUTH' : mySeat === 'SOUTH' ? 'NORTH' : mySeat === 'EAST' ? 'WEST' : 'EAST';
+        const partnerName = (g.players && g.players[partnerSeat]) || SEAT_LABELS[partnerSeat];
+        const myScore = myTeam === 'NS' ? totNS : totEW;
+        const oppScore = myTeam === 'NS' ? totEW : totNS;
+        partners[partnerName] = partners[partnerName] || { w: 0, l: 0, taken: 0, ok: 0 };
+
+        if (isGameScoreLocked(g) && g.rounds.length > 0) {
+          played++;
+          const won = myScore > oppScore;
+          if (won) {
+            wins++; curStreak++; bestStreak = Math.max(bestStreak, curStreak);
+            partners[partnerName].w++;
+            const margin = myScore - oppScore;
+            if (!biggestWin || margin > biggestWin.m) biggestWin = { m: margin, s: `${myScore} - ${oppScore}` };
+            if (!tightestWin || margin < tightestWin.m) tightestWin = { m: margin, s: `${myScore} - ${oppScore}` };
+          } else {
+            curStreak = 0;
+            partners[partnerName].l++;
+          }
+        }
+
+        let gameAnn = 0;
+        g.rounds.forEach(r => {
+          roundsCount++;
+          const teamTook = r.taker === myTeam;
+          const iTook = r.takerSeat ? r.takerSeat === mySeat : teamTook;
+          const myPts = myTeam === 'NS' ? r.ptsNS : r.ptsEW;
+          const oppPts = myTeam === 'NS' ? r.ptsEW : r.ptsNS;
+          const myRoundScore = myTeam === 'NS' ? r.scoreNS : r.scoreEW;
+
+          if (teamTook) { partners[partnerName].taken++; if (r.isSuccess) partners[partnerName].ok++; }
+          if (teamTook) { ptsTaking.sum += myRoundScore; ptsTaking.n++; } else { ptsDefending.sum += myRoundScore; ptsDefending.n++; }
+          if (r.beloteBy === myTeam) beloteCount++;
+          if (oppPts === 252) capotsSuffered++;
+
+          const myAnn = (r.annList || []).filter(a => a.team === myTeam);
+          if (myAnn.length > 0) {
+            myAnn.forEach(a => { annTypes[a.label] = (annTypes[a.label] || 0) + 1; annTotalPts += a.points; gameAnn += a.points; });
+          } else {
+            const legacy = myTeam === 'NS' ? (r.annNS || 0) : (r.annEW || 0);
+            annTotalPts += legacy; gameAnn += legacy;
+          }
+
+          if (iTook) {
+            myTakes++;
+            const ck = contractKeyOf(r);
+            if (contracts[ck]) { contracts[ck].t++; if (r.isSuccess) contracts[ck].ok++; }
+            if (suits[r.suit]) { suits[r.suit].t++; if (r.isSuccess) suits[r.suit].ok++; }
+            if (r.contractType === 'NUMBER') { numSum += r.contractVal; numCount++; }
+            if (r.isSuccess) {
+              const rank = r.contractType === 'GENERALE' ? 500 : r.contractType === 'CAPOT_BELOTE' ? 251 : r.contractType === 'CAPOT' ? 250 : r.contractVal;
+              if (rank > bestRank) { bestRank = rank; bestLabel = `${ck} ${SUIT_ICONS[r.suit] || ''}${r.mult === 2 ? ' coinché' : r.mult === 4 ? ' surcoinché' : ''}`; }
+            }
+            if (r.mult >= 2) { coincheOnMe.t++; if (r.isSuccess) coincheOnMe.ok++; }
+            if (r.mult === 4) { surcoincheOnMe.t++; if (r.isSuccess) surcoincheOnMe.ok++; }
+            if (r.contractType === 'CAPOT' || r.contractType === 'CAPOT_BELOTE') { capotAnn.t++; if (r.isSuccess) capotAnn.ok++; }
+            if (r.contractType === 'GENERALE') { generaleAnn.t++; if (r.isSuccess) generaleAnn.ok++; }
+            if (r.contractType === 'NUMBER' && myPts === 252) surpriseCapots++;
+          } else if (!teamTook && r.mult >= 2) {
+            coincheByMe.t++; if (!r.isSuccess) coincheByMe.ok++;
+          }
+        });
+        if (g.rounds.length > 0) { annGamesCount++; }
+      });
+
+      if (roundsCount === 0) {
+        host.innerHTML = statCard('📈 Statistiques détaillées', '<div class="text-xs text-slate-400">Jouez quelques donnes pour voir vos statistiques détaillées.</div>');
+        return;
+      }
+
+      const contractRows = CONTRACT_KEYS.filter(k => contracts[k].t > 0)
+        .map(k => statRow(k, contracts[k].ok, contracts[k].t)).join('') ||
+        '<div class="text-xs text-slate-500">Aucun contrat pris.</div>';
+      const suitRows = SUIT_STAT_KEYS.filter(([k]) => suits[k].t > 0)
+        .map(([k, lbl]) => statRow(lbl, suits[k].ok, suits[k].t)).join('') ||
+        '<div class="text-xs text-slate-500">Aucun contrat pris.</div>';
+      const sortedSuits = SUIT_STAT_KEYS.filter(([k]) => suits[k].t > 0);
+      const favSuit = sortedSuits.slice().sort((a, b) => suits[b[0]].t - suits[a[0]].t)[0];
+      const luckySuit = sortedSuits.filter(([k]) => suits[k].t >= 2)
+        .sort((a, b) => pctOf(suits[b[0]].ok, suits[b[0]].t) - pctOf(suits[a[0]].ok, suits[a[0]].t))[0];
+
+      const annRows = Object.entries(annTypes).sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => kv(k, `${v} fois`)).join('') || '<div class="text-xs text-slate-500">Aucune annonce enregistrée avec détail.</div>';
+
+      const partnerRows = Object.entries(partners)
+        .sort((a, b) => (b[1].w - a[1].w) || (a[1].l - b[1].l)).slice(0, 5)
+        .map(([name, p]) => kv(name, `${p.w} V - ${p.l} D (${pctOf(p.w, p.w + p.l)}%) • contrats ${pctOf(p.ok, p.taken)}%`)).join('');
+
+      host.innerHTML = [
+        statCard('🎯 Contrats annoncés par hauteur (vous)', `
+          ${kv('Contrats pris', myTakes)}
+          ${kv('Contrat moyen (chiffrés)', numCount ? Math.round(numSum / numCount) + ' pts' : '—')}
+          ${kv('Meilleur contrat réussi', bestLabel)}
+          <div class="space-y-2 pt-1">${contractRows}</div>`),
+        statCard('🃏 Par couleur d\'atout', `
+          ${kv('Atout favori', favSuit ? `${favSuit[1]} (${suits[favSuit[0]].t}×)` : '—')}
+          ${kv('Atout porte-bonheur', luckySuit ? `${luckySuit[1]} (${pctOf(suits[luckySuit[0]].ok, suits[luckySuit[0]].t)}%)` : '—')}
+          <div class="space-y-2 pt-1">${suitRows}</div>`),
+        statCard('🔥 Coinche & Surcoinche', `
+          ${kv('Vous coinchés / surcoinchés', `${coincheOnMe.t} → ${coincheOnMe.ok} passé(s)`)}
+          ${kv('Dont surcoinchés', `${surcoincheOnMe.t} → ${surcoincheOnMe.ok} passé(s)`)}
+          ${kv('Coinches de votre équipe', `${coincheByMe.t} → ${coincheByMe.ok} chute(s) provoquée(s)`)}`),
+        statCard('👑 Capots & Générales', `
+          ${kv('Capots annoncés', `${capotAnn.t} → ${capotAnn.ok} réussi(s)`)}
+          ${kv('Générales annoncées', `${generaleAnn.t} → ${generaleAnn.ok} réussie(s)`)}
+          ${kv('Capots « surprise » (contrat chiffré)', surpriseCapots)}
+          ${kv('Capots subis', capotsSuffered)}`),
+        statCard('📢 Belote & Annonces', `
+          ${kv('Belote-Rebelote (votre équipe)', `${beloteCount} (${pctOf(beloteCount, roundsCount)}% des donnes)`)}
+          ${kv('Points d\'annonces (total)', annTotalPts)}
+          ${kv('Moyenne d\'annonces / partie', annGamesCount ? Math.round(annTotalPts / annGamesCount) + ' pts' : '—')}
+          <div class="space-y-1 pt-1">${annRows}</div>`),
+        statCard('🏆 Parties & Scores', `
+          ${kv('Parties terminées', `${played} (${wins} V - ${played - wins} D)`)}
+          ${kv('Série de victoires en cours', curStreak)}
+          ${kv('Meilleure série', bestStreak)}
+          ${kv('Points / donne en attaque', ptsTaking.n ? Math.round(ptsTaking.sum / ptsTaking.n) : '—')}
+          ${kv('Points / donne en défense', ptsDefending.n ? Math.round(ptsDefending.sum / ptsDefending.n) : '—')}
+          ${kv('Plus large victoire', biggestWin ? biggestWin.s : '—')}
+          ${kv('Victoire la plus serrée', tightestWin ? tightestWin.s : '—')}`),
+        statCard('🤝 Partenaires', partnerRows || '<div class="text-xs text-slate-500">Aucune partie.</div>')
+      ].join('');
     }
 
     // --- ONGLET 4 : AUTH SUPABASE, AMIS & SYNCHRONISATION ---
@@ -2579,6 +2828,11 @@
         num: r.round_number,
         dealerSeat: r.dealer_seat || 'NORTH',
         taker: r.taker_team || 'NS',
+        takerSeat: r.taker_seat || null,
+        annList: [].concat(
+          (Array.isArray(r.announcements_ns) ? r.announcements_ns : []).map(a => ({ team: 'NS', label: a.label, points: a.points })),
+          (Array.isArray(r.announcements_ew) ? r.announcements_ew : []).map(a => ({ team: 'EW', label: a.label, points: a.points }))
+        ),
         suit: r.trump || 'SPADES',
         contractType: cType,
         contractVal: r.contract_value || 80,
@@ -2880,7 +3134,7 @@
               game_id: g.id,
               round_number: r.num,
               dealer_seat: r.dealerSeat || 'NORTH',
-              taker_seat: r.taker === 'NS' ? 'NORTH' : 'EAST',
+              taker_seat: r.takerSeat || (r.taker === 'NS' ? 'NORTH' : 'EAST'),
               taker_team: r.taker,
               trump: r.suit,
               contract_type: r.contractType === 'CAPOT_BELOTE' ? 'CAPOT' : (r.contractType === 'NUMBER' ? 'NORMAL' : r.contractType),
@@ -2891,6 +3145,8 @@
               is_capot_achieved: r.ptsNS === 252 || r.ptsEW === 252,
               capot_team: r.ptsNS === 252 ? 'NS' : r.ptsEW === 252 ? 'EW' : null,
               belote_team: r.beloteBy === 'NONE' ? null : r.beloteBy,
+              announcements_ns: (r.annList || []).filter(a => a.team === 'NS'),
+              announcements_ew: (r.annList || []).filter(a => a.team === 'EW'),
               announcement_points_ns: r.annNS || 0,
               announcement_points_ew: r.annEW || 0,
               is_contract_fulfilled: Boolean(r.isSuccess),

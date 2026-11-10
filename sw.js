@@ -1,4 +1,4 @@
-const CACHE_NAME = 'belote-coinche-pwa-v10';
+const CACHE_NAME = 'belote-coinche-pwa-v11';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
