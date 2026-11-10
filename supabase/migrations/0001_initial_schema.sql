@@ -197,11 +197,12 @@ BEGIN
 
     IF v_entity_type = 'GAME' THEN
       INSERT INTO public.games (
-        id, created_by, mode, status, target_score, rules_config,
+        id, created_by, title, mode, status, target_score, rules_config,
         score_ns, score_ew, winner_team, started_at, ended_at, updated_at, client_hlc, is_deleted
       ) VALUES (
         v_entity_id,
         auth.uid(),
+        COALESCE(NULLIF(TRIM(v_payload->>'title'), ''), 'Partie de Coinche'),
         (v_payload->>'mode')::game_mode,
         (v_payload->>'status')::game_status,
         (v_payload->>'target_score')::INTEGER,
@@ -216,11 +217,12 @@ BEGIN
         COALESCE((v_payload->>'is_deleted')::BOOLEAN, FALSE)
       )
       ON CONFLICT (id) DO UPDATE SET
-        status       = EXCLUDED.status,
-        score_ns     = EXCLUDED.score_ns,
-        score_ew     = EXCLUDED.score_ew,
-        winner_team  = EXCLUDED.winner_team,
-        ended_at     = EXCLUDED.ended_at,
+        title        = EXCLUDED.title,
+        status       = CASE WHEN public.games.status = 'COMPLETED' THEN public.games.status ELSE EXCLUDED.status END,
+        score_ns     = CASE WHEN public.games.status = 'COMPLETED' THEN public.games.score_ns ELSE EXCLUDED.score_ns END,
+        score_ew     = CASE WHEN public.games.status = 'COMPLETED' THEN public.games.score_ew ELSE EXCLUDED.score_ew END,
+        winner_team  = CASE WHEN public.games.status = 'COMPLETED' THEN public.games.winner_team ELSE EXCLUDED.winner_team END,
+        ended_at     = CASE WHEN public.games.status = 'COMPLETED' THEN public.games.ended_at ELSE EXCLUDED.ended_at END,
         updated_at   = NOW(),
         client_hlc   = EXCLUDED.client_hlc,
         is_deleted   = EXCLUDED.is_deleted
@@ -263,6 +265,7 @@ BEGIN
         COALESCE((v_payload->>'is_deleted')::BOOLEAN, FALSE)
       )
       ON CONFLICT (id) DO UPDATE SET
+        dealer_seat            = EXCLUDED.dealer_seat,
         taker_seat             = EXCLUDED.taker_seat,
         taker_team             = EXCLUDED.taker_team,
         trump                  = EXCLUDED.trump,
@@ -285,7 +288,11 @@ BEGIN
         updated_at             = NOW(),
         client_hlc             = EXCLUDED.client_hlc,
         is_deleted             = EXCLUDED.is_deleted
-      WHERE EXCLUDED.client_hlc > public.game_rounds.client_hlc;
+      WHERE EXCLUDED.client_hlc > public.game_rounds.client_hlc
+        AND NOT EXISTS (
+          SELECT 1 FROM public.games g
+          WHERE g.id = public.game_rounds.game_id AND g.status = 'COMPLETED'
+        );
     END IF;
 
     INSERT INTO public.sync_processed_mutations (mutation_id, user_id, entity_type, entity_id)
@@ -300,8 +307,6 @@ $$;
 
 -- ==========================================
 -- 8. RPC DE LIAISON RÉTROACTIVE INVITÉ -> PROFIL UTILISATEUR
--- Permet de rattacher toutes les parties jouées hors-ligne par un invité ("Mode Bateau")
--- au vrai compte d'un ami une fois la connexion retrouvée (via guest_id ou claim_code).
 -- ==========================================
 CREATE OR REPLACE FUNCTION public.link_guest_to_profile(
   p_guest_id UUID,
@@ -330,3 +335,60 @@ BEGIN
   RETURN v_updated_count;
 END;
 $$;
+
+-- ==========================================
+-- 9. ROW LEVEL SECURITY (RLS) & POLICIES
+-- ==========================================
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.friendships ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.games ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.game_participants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.game_rounds ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.sync_processed_mutations ENABLE ROW LEVEL SECURITY;
+
+-- Policies : Lecture et mise à jour des profils
+DROP POLICY IF EXISTS "Profiles lisibles par tous les joueurs connectes" ON public.profiles;
+CREATE POLICY "Profiles lisibles par tous les joueurs connectes"
+  ON public.profiles FOR SELECT
+  USING (true);
+
+DROP POLICY IF EXISTS "Modification de son propre profil" ON public.profiles;
+CREATE POLICY "Modification de son propre profil"
+  ON public.profiles FOR UPDATE
+  USING (auth.uid() = id);
+
+DROP POLICY IF EXISTS "Insertion de son propre profil" ON public.profiles;
+CREATE POLICY "Insertion de son propre profil"
+  ON public.profiles FOR INSERT
+  WITH CHECK (auth.uid() = id);
+
+-- Policies : Amis
+DROP POLICY IF EXISTS "Acces a ses propres relations amis" ON public.friendships;
+CREATE POLICY "Acces a ses propres relations amis"
+  ON public.friendships FOR ALL
+  USING (auth.uid() = requester_id OR auth.uid() = addressee_id);
+
+-- Policies : Parties, Participants & Donnes (visibles et créables par les joueurs)
+DROP POLICY IF EXISTS "Parties accessibles aux joueurs" ON public.games;
+CREATE POLICY "Parties accessibles aux joueurs"
+  ON public.games FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Participants accessibles aux joueurs" ON public.game_participants;
+CREATE POLICY "Participants accessibles aux joueurs"
+  ON public.game_participants FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Donnes accessibles aux joueurs" ON public.game_rounds;
+CREATE POLICY "Donnes accessibles aux joueurs"
+  ON public.game_rounds FOR ALL
+  USING (true)
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Mutations de sync propres a l utilisateur" ON public.sync_processed_mutations;
+CREATE POLICY "Mutations de sync propres a l utilisateur"
+  ON public.sync_processed_mutations FOR ALL
+  USING (auth.uid() = user_id);
+
