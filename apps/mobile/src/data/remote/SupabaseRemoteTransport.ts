@@ -24,12 +24,20 @@ export class SupabaseRemoteTransport implements IRemoteSyncTransport {
   }
 
   private async buildHeaders(): Promise<Record<string, string>> {
-    const token = (await this.getAccessToken?.()) ?? this.anonKey;
-    return {
+    const userAccessToken = await this.getAccessToken?.();
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       apikey: this.anonKey,
-      Authorization: `Bearer ${token}`,
     };
+
+    if (userAccessToken) {
+      headers.Authorization = `Bearer ${userAccessToken}`;
+    } else if (!this.anonKey.startsWith('sb_publishable_')) {
+      // Compatibilité clé `anon` JWT classique (eyJ...)
+      headers.Authorization = `Bearer ${this.anonKey}`;
+    }
+
+    return headers;
   }
 
   /**
