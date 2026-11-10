@@ -42,6 +42,8 @@ export interface PersistedRoundRecord {
 export interface GameRecord {
   readonly id: string;
   readonly createdByProfileId: string;
+  /** Nom personnalisé ou par défaut de la partie (ex: "Soirée Coinche Paris", "Partie #1 — Alex/Thomas vs Inès/Matéo") */
+  readonly title: string;
   readonly mode: GameMode;
   readonly status: 'IN_PROGRESS' | 'COMPLETED' | 'ABANDONED';
   readonly targetScore: number;
@@ -55,6 +57,27 @@ export interface GameRecord {
   readonly endedAt?: string;
   readonly clientHlc: string;
   readonly syncStatus: 'SYNCED' | 'DIRTY';
+}
+
+export function buildDefaultGameTitle(
+  mode: GameMode,
+  participants: ReadonlyArray<{ team: TeamSide; displayName: string }>,
+  gameNumber = 1
+): string {
+  const modeLabel = mode === 'BELOTE_CLASSIC' ? 'Belote' : 'Coinche';
+  const nsNames = participants
+    .filter((p) => p.team === 'NS')
+    .map((p) => p.displayName)
+    .join('/');
+  const ewNames = participants
+    .filter((p) => p.team === 'EW')
+    .map((p) => p.displayName)
+    .join('/');
+
+  if (nsNames && ewNames) {
+    return `Soirée ${modeLabel} #${gameNumber} (${nsNames} vs ${ewNames})`;
+  }
+  return `Soirée ${modeLabel} #${gameNumber}`;
 }
 
 export interface PlayerRelationStat {

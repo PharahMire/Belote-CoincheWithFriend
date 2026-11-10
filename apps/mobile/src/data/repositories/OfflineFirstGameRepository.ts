@@ -7,11 +7,12 @@ import {
   type RoundScoreInput,
   type TableRulesConfig,
 } from '../../../../../packages/core-rules/src/index.ts';
-import type {
-  GameParticipant,
-  GameRecord,
-  PersistedRoundRecord,
-  PlayerStatsSummary,
+import {
+  buildDefaultGameTitle,
+  type GameParticipant,
+  type GameRecord,
+  type PersistedRoundRecord,
+  type PlayerStatsSummary,
 } from '../../domain/models/Game.ts';
 import type {
   FriendEntry,
@@ -130,9 +131,11 @@ export class OfflineFirstGameRepository {
 
   /**
    * 3. CRÉATION D'UNE PARTIE HORS-LIGNE OU EN LIGNE
+   * Génère automatiquement un nom par défaut si aucun nom n'est renseigné.
    */
   public createGame(params: {
     id?: string;
+    title?: string;
     mode: GameMode;
     targetScore: number;
     rules: TableRulesConfig;
@@ -211,9 +214,16 @@ export class OfflineFirstGameRepository {
       };
     });
 
+    const trimmedTitle = params.title?.trim();
+    const resolvedTitle =
+      trimmedTitle && trimmedTitle.length > 0
+        ? trimmedTitle
+        : buildDefaultGameTitle(params.mode, participants, this.games.size + 1);
+
     const game: GameRecord = {
       id: gameId,
       createdByProfileId: this.currentUser.id,
+      title: resolvedTitle,
       mode: params.mode,
       status: 'IN_PROGRESS',
       targetScore: params.targetScore,
@@ -230,6 +240,34 @@ export class OfflineFirstGameRepository {
     this.games.set(gameId, game);
     this.enqueueMutation('GAME', gameId, 'UPSERT', game, hlc);
     return game;
+  }
+
+  /**
+   * 3bis. RENOMMER UNE PARTIE EXISTANTE (En cours ou ancienne partie dans l'historique)
+   */
+  public renameGame(gameId: string, newTitle: string): GameRecord {
+    const game = this.games.get(gameId);
+    if (!game) {
+      throw new Error(`Partie introuvable : ${gameId}`);
+    }
+
+    const trimmed = newTitle.trim();
+    const resolvedTitle =
+      trimmed.length > 0
+        ? trimmed
+        : buildDefaultGameTitle(game.mode, game.participants, 1);
+
+    const hlc = this.hlc.now();
+    const updatedGame: GameRecord = {
+      ...game,
+      title: resolvedTitle,
+      clientHlc: hlc,
+      syncStatus: 'DIRTY',
+    };
+
+    this.games.set(gameId, updatedGame);
+    this.enqueueMutation('GAME', gameId, 'UPSERT', updatedGame, hlc);
+    return updatedGame;
   }
 
   /**

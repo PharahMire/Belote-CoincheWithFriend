@@ -63,6 +63,7 @@ CREATE INDEX idx_friendships_addressee ON public.friendships (addressee_id, stat
 CREATE TABLE public.games (
   id UUID PRIMARY KEY,
   created_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE RESTRICT,
+  title VARCHAR(80) NOT NULL DEFAULT 'Partie de Coinche',
   mode game_mode NOT NULL,
   status game_status NOT NULL DEFAULT 'IN_PROGRESS',
   target_score INTEGER NOT NULL DEFAULT 1000,

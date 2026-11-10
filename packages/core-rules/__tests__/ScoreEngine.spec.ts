@@ -413,8 +413,9 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       generaleAchievedByTaker: true,
     });
 
-    // Partie #3 gagnée par NS
-    appStore.startNewGame({
+    // Partie #3 gagnée par NS (avec un nom personnalisé à la création)
+    const game3 = appStore.startNewGame({
+      title: 'Soirée Coinche Paris',
       mode: 'COINCHE',
       targetScore: 500,
       seats: {
@@ -424,24 +425,37 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
         WEST: { type: 'GUEST', guestId: chloeGuest.guestId },
       },
     });
+    assert.equal(game3.title, 'Soirée Coinche Paris');
     appStore.addRoundToActiveGame('SOUTH', RoundEntryFormController.toScoreInput(draftCapotBelote));
 
     // Fermeture de la feuille de marque, puis ouverture d'une ancienne partie depuis l'onglet Historique
     appStore.closeScoreSheet('GAMES_HISTORY');
     assert.equal(appStore.getState().isScoreSheetOpen, false);
 
+    // La Partie #1 (créée sans nom explicite) a reçu un nom par défaut automatique
+    assert.ok(game1.title.startsWith('Soirée Coinche #1'));
+
+    // Modification du nom d'une ancienne partie depuis l'Historique ou la Feuille de Marque
+    const renamedGame1 = appStore.renameGame(game1.id, 'Traversée Corse en Bateau');
+    assert.equal(renamedGame1.title, 'Traversée Corse en Bateau');
+
     const historyList = ScoreSheetPresenter.buildGamesHistoryList(
       appStore.getState().gamesHistory
     );
     assert.equal(historyList.length, 3);
+    assert.ok(historyList.some((h) => h.title === 'Traversée Corse en Bateau'));
+    assert.ok(historyList.some((h) => h.title === 'Soirée Coinche Paris'));
+
     appStore.selectGameFromHistory(game1.id);
     assert.equal(appStore.getState().isScoreSheetOpen, true);
     assert.equal(appStore.getState().activeGame?.id, game1.id);
+    assert.equal(appStore.getState().activeGame?.title, 'Traversée Corse en Bateau');
 
     const sheetVm = ScoreSheetPresenter.buildViewModel(
       appStore.getState().activeGame!,
       appStore.getState().syncStatus
     );
+    assert.equal(sheetVm.title, 'Traversée Corse en Bateau');
     assert.equal(sheetVm.roundsRows[0].trickDisplayNS, 'Capot B');
     assert.equal(sheetVm.unlinkedPlayersInGame.length, 2);
 

@@ -3,6 +3,7 @@ import type { SyncLifecycleStatus } from '../../data/sync/LifecycleSyncCoordinat
 
 export interface ScoreSheetViewModel {
   readonly gameId: string;
+  readonly title: string;
   readonly modeLabel: string;
   readonly teamNSLabel: string;
   readonly teamEWLabel: string;
@@ -49,7 +50,7 @@ export class ScoreSheetPresenter {
   public static buildGamesHistoryList(
     games: readonly GameRecord[]
   ): GameHistoryItemViewModel[] {
-    return games.map((g, idx) => {
+    return games.map((g) => {
       const nsNames = g.participants
         .filter((p) => p.team === 'NS')
         .map((p) => p.displayName)
@@ -61,7 +62,7 @@ export class ScoreSheetPresenter {
 
       return {
         gameId: g.id,
-        title: `Partie #${games.length - idx} : ${nsNames} vs ${ewNames}`,
+        title: g.title,
         modeLabel: g.mode === 'BELOTE_CLASSIC' ? 'Belote' : 'Coinche',
         statusLabel: g.status === 'COMPLETED' ? 'TERMINÉE' : 'EN COURS',
         scoreSummary: `${g.scoreNS} - ${g.scoreEW}`,
@@ -163,6 +164,7 @@ export class ScoreSheetPresenter {
 
     return {
       gameId: game.id,
+      title: game.title,
       modeLabel:
         game.mode === 'BELOTE_CLASSIC'
           ? 'Belote Classique'

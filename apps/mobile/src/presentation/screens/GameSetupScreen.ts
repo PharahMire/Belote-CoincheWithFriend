@@ -21,6 +21,8 @@ export type SeatSelectionInput =
 export type TargetScoreOption = 500 | 1000 | 1500 | 2000;
 
 export interface GameSetupDraft {
+  /** Nom de la partie (pré-rempli par défaut, et regénéré automatiquement s'il est laissé vide) */
+  readonly title: string;
   readonly mode: GameMode;
   readonly targetScore: TargetScoreOption;
   readonly initialDealerSeat: PlayerSeat;
@@ -70,6 +72,7 @@ export class GameSetupController {
       : { type: 'CURRENT_USER' };
 
     return {
+      title: 'Soirée Coinche #1',
       mode: 'COINCHE',
       targetScore: 1000,
       initialDealerSeat: 'SOUTH',
@@ -83,12 +86,29 @@ export class GameSetupController {
     };
   }
 
+  public static setTitle(
+    draft: GameSetupDraft,
+    title: string
+  ): GameSetupDraft {
+    return {
+      ...draft,
+      title,
+    };
+  }
+
   public static switchGameMode(
     draft: GameSetupDraft,
     mode: GameMode
   ): GameSetupDraft {
+    const isDefaultTitle =
+      draft.title === 'Soirée Coinche #1' || draft.title === 'Soirée Belote #1';
     return {
       ...draft,
+      title: isDefaultTitle
+        ? mode === 'BELOTE_CLASSIC'
+          ? 'Soirée Belote #1'
+          : 'Soirée Coinche #1'
+        : draft.title,
       mode,
       rules:
         mode === 'BELOTE_CLASSIC' ? DEFAULT_BELOTE_RULES : DEFAULT_COINCHE_RULES,

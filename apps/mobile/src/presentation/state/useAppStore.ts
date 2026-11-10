@@ -199,8 +199,9 @@ export class BeloteAppStore {
     return friend;
   }
 
-  /** Crée une nouvelle partie (supporte 500, 1000, 1500, 2000 pts) et ouvre immédiatement sa Feuille de Marque */
+  /** Crée une nouvelle partie (avec nom personnalisé ou par défaut, et score cible 500..2000 pts) et ouvre sa Feuille de Marque */
   public startNewGame(params: {
+    title?: string;
     mode: GameMode;
     targetScore?: number;
     initialDealerSeat?: PlayerSeat;
@@ -221,6 +222,7 @@ export class BeloteAppStore {
         : DEFAULT_COINCHE_RULES;
 
     const game = this.repo.createGame({
+      title: params.title,
       mode: params.mode,
       targetScore: params.targetScore ?? 1000,
       rules: { ...baseRules, ...params.customRules, mode: params.mode },
@@ -233,6 +235,13 @@ export class BeloteAppStore {
     this.editingRoundNumber = undefined;
     this.notify();
     return game;
+  }
+
+  /** Permet de modifier le nom d'une partie (qu'elle soit en cours sur la Feuille de Marque ou ancienne dans l'Historique) */
+  public renameGame(gameId: string, newTitle: string): GameRecord {
+    const updated = this.repo.renameGame(gameId, newTitle);
+    this.notify();
+    return updated;
   }
 
   public addRoundToActiveGame(
