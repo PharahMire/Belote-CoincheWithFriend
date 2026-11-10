@@ -325,7 +325,10 @@
           </button>
         </div>
         <div id="friendFeedbackMsg" class="text-[11px] text-slate-400"></div>
-        <div id="friendsListContainer" class="flex flex-wrap gap-2 pt-1"></div>
+        <button type="button" onclick="openFriendsModal('MANAGE')" class="w-full py-2.5 px-3 rounded-xl bg-slate-800 border border-slate-600 text-xs font-bold text-white flex items-center justify-between">
+          <span>👥 Voir / rechercher mes amis</span>
+          <span id="friendsCountBadge" class="px-2 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-black">0</span>
+        </button>
       </div>
 
       <!-- 3. Configuration Projet Supabase (Masquée automatiquement dès que GitHub Secrets est actif) -->
@@ -487,6 +490,18 @@
   <!-- ===================================================================== -->
   <!-- TIROIR / MODALE PLEIN ÉCRAN MOBILE : SAISIE OU MODIFICATION DE DONNE  -->
   <!-- ===================================================================== -->
+  <!-- POPUP LISTE D'AMIS (recherche + liste déroulante) -->
+  <div id="friendsModalOverlay" class="fixed inset-0 z-[60] hidden bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center">
+    <div class="w-full max-w-md max-h-[85vh] flex flex-col rounded-t-3xl sm:rounded-3xl border border-slate-700 bg-slate-900 p-4 space-y-3 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h2 id="friendsModalTitle" class="text-sm font-black uppercase tracking-wider text-white">👥 Mes Amis</h2>
+        <button type="button" onclick="closeFriendsModal()" class="w-8 h-8 rounded-xl bg-slate-800 text-slate-300 font-bold text-sm">✕</button>
+      </div>
+      <input id="friendsSearchInput" type="text" oninput="renderFriendsModalList()" placeholder="🔍 Rechercher un ami (pseudo ou code)..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white" />
+      <div id="friendsModalList" class="flex-1 overflow-y-auto space-y-1.5 pr-1 min-h-[120px]"></div>
+    </div>
+  </div>
+
   <div id="roundEntryModalOverlay" class="fixed inset-0 z-50 hidden bg-slate-950/85 backdrop-blur-sm flex items-end sm:items-center justify-center">
     <div class="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl border-t sm:border border-slate-700 bg-slate-900 p-4 space-y-3.5 shadow-2xl">
       <div class="flex items-center justify-between border-b border-slate-800 pb-2.5 sticky top-0 bg-slate-900 z-10">
@@ -793,7 +808,8 @@
       annTeam: 'NS',
       annNS: 0,
       annEW: 0,
-      annLabels: []
+      annLabels: [],
+      trickSpecial: null
     };
 
     function loadPersistedState() {
@@ -912,16 +928,11 @@
 
         const friendButtons = cfg.linkType === 'FRIEND'
           ? (cachedFriends.length > 0
-              ? `<div class="flex flex-wrap gap-1.5 pt-1">
-                  ${cachedFriends.map(f => `
-                    <button type="button" onclick="pickCachedFriend('${m.seat}', '${f.username}', '${f.code}', '${f.profileId || ''}')"
-                      class="px-2.5 py-1.5 rounded-lg text-xs font-bold border transition ${
-                        cfg.name === f.username ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'
-                      }">
-                      ${f.username} <span class="opacity-75 text-[10px]">(${f.code})</span>
-                    </button>
-                  `).join('')}
-                </div>`
+              ? `<button type="button" onclick="openFriendsModal('PICK', '${m.seat}')"
+                  class="w-full py-2 px-3 rounded-xl bg-slate-800 border border-emerald-500/40 text-xs font-bold text-white flex items-center justify-between">
+                  <span class="truncate">👥 ${cfg.code ? cfg.name : 'Choisir un ami...'}</span>
+                  <span class="text-emerald-300 text-[10px] shrink-0">🔍 Changer</span>
+                </button>`
               : `<div class="text-[11px] text-amber-300 pt-1">Aucun ami enregistré. Ajoutez vos amis par Code BLT dans l'onglet 👤 Compte.</div>`)
           : '';
 
@@ -1229,6 +1240,10 @@
         state.mult = r.mult;
         state.ptsNS = r.ptsNS;
         state.ptsEW = r.ptsEW;
+        const lbl = r.ptsNS === 252 ? r.trickLabelNS : (r.ptsEW === 252 ? r.trickLabelEW : null);
+        state.trickSpecial = lbl === 'Générale' ? 'GENERALE'
+          : lbl === 'Capot B' ? 'CAPOT_BELOTE'
+          : (r.ptsNS === 252 || r.ptsEW === 252) ? 'CAPOT' : null;
         state.beloteBy = r.beloteBy || 'NONE';
         state.annNS = r.annNS || 0;
         state.annEW = r.annEW || 0;
@@ -1242,6 +1257,9 @@
         editingRoundIndex = null;
         state.dealerSeat = g.currentDealerSeat || 'NORTH';
         state.beloteBy = 'NONE';
+        state.trickSpecial = null;
+        state.ptsNS = 100;
+        state.ptsEW = 62;
         clearAnnouncements();
         document.getElementById('formModeTitle').textContent = `➕ Donne #${g.rounds.length + 1}`;
         document.getElementById('btnSubmitRound').textContent = 'Valider la Donne';
@@ -1334,26 +1352,14 @@
       }).join('');
     }
 
+    // Le contrat annoncé est 100% indépendant des plis réalisés (barre / boutons Capot, Générale...)
     function selectContract(type, val) {
       state.contractType = type;
       state.contractVal = val;
       if (type === 'CAPOT_BELOTE') {
         setBeloteBy(state.taker);
       }
-      if (type === 'CAPOT' || type === 'CAPOT_BELOTE' || type === 'GENERALE') {
-        if (state.taker === 'NS') {
-          state.ptsNS = 252;
-          state.ptsEW = 0;
-        } else {
-          state.ptsNS = 0;
-          state.ptsEW = 252;
-        }
-      } else if (state.ptsNS > 162 || state.ptsEW > 162) {
-        state.ptsNS = 100;
-        state.ptsEW = 62;
-      }
       renderContractGrid();
-      updateTrickBarUI();
       updatePreview();
     }
 
@@ -1465,38 +1471,43 @@
       const ns = parseInt(val, 10);
       state.ptsNS = ns;
       state.ptsEW = 162 - ns;
-      if (state.contractType !== 'NUMBER') {
-        state.contractType = 'NUMBER';
-        state.contractVal = 100;
-        renderContractGrid();
-      }
+      state.trickSpecial = null;
       updateTrickBarUI();
       updatePreview();
     }
 
+    // Plis réalisés : indépendant du contrat annoncé. Un second clic sur le même bouton donne le Capot à l'autre équipe.
     function setSpecialOutcome(kind) {
       if (kind === 'DEDANS') {
+        state.trickSpecial = null;
         if (state.taker === 'NS') { state.ptsNS = 60; state.ptsEW = 102; }
         else { state.ptsNS = 102; state.ptsEW = 60; }
         updateTrickBarUI();
         updatePreview();
         return;
       }
-      if (kind === 'CAPOT') selectContract('CAPOT', 250);
-      if (kind === 'CAPOT_BELOTE') selectContract('CAPOT_BELOTE', 250);
-      if (kind === 'GENERALE') selectContract('GENERALE', 500);
+      let winner = state.taker;
+      if (state.trickSpecial === kind) {
+        winner = state.ptsNS === 252 ? 'EW' : 'NS';
+      }
+      state.trickSpecial = kind;
+      state.ptsNS = winner === 'NS' ? 252 : 0;
+      state.ptsEW = winner === 'EW' ? 252 : 0;
+      if (kind === 'CAPOT_BELOTE') {
+        setBeloteBy(winner);
+      }
+      updateTrickBarUI();
+      updatePreview();
     }
 
     function getTrickLabelsAndBar() {
-      const isSpecialFull =
-        state.ptsNS === 252 || state.ptsEW === 252 ||
-        state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE' || state.contractType === 'GENERALE';
+      const isSpecialFull = state.ptsNS === 252 || state.ptsEW === 252;
 
       if (isSpecialFull) {
         const winnerIsNS = state.ptsNS >= state.ptsEW;
         let label = 'Capot';
-        if (state.contractType === 'GENERALE') label = 'Générale';
-        else if (state.contractType === 'CAPOT_BELOTE' || state.beloteBy === (winnerIsNS ? 'NS' : 'EW')) label = 'Capot B';
+        if (state.trickSpecial === 'GENERALE') label = 'Générale';
+        else if (state.trickSpecial === 'CAPOT_BELOTE' || state.beloteBy === (winnerIsNS ? 'NS' : 'EW')) label = 'Capot B';
 
         return {
           labelNS: winnerIsNS ? label : '0',
@@ -1557,7 +1568,7 @@
         finalNS = takerIsNS ? round10(takerRaw) : round10(defRaw);
         finalEW = takerIsNS ? round10(defRaw) : round10(takerRaw);
       } else {
-        const baseFall = (state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE') ? 250 : 160;
+        const baseFall = (state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE' || defTrickPts === 252) ? 250 : 160;
         const defRaw = (baseFall + state.contractVal) * state.mult + totalAnn;
         const round10 = x => Math.round(x / 10) * 10;
         finalNS = takerIsNS ? beloteNS : round10(defRaw) + beloteNS;
@@ -1975,18 +1986,67 @@
         sbBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400';
       }
 
-      const friendsContainer = document.getElementById('friendsListContainer');
-      if (cachedFriends.length === 0) {
-        friendsContainer.innerHTML = `<span class="text-xs text-slate-500">Aucun ami dans la liste.</span>`;
-      } else {
-        friendsContainer.innerHTML = cachedFriends.map((f, idx) => `
-          <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200 font-semibold">
-            <span>👥 ${f.username}</span>
-            <code class="text-blue-300 text-[10px]">${f.code}</code>
-            <button type="button" onclick="removeFriendAt(${idx})" class="ml-1 text-rose-400 font-black">✕</button>
-          </div>
-        `).join('');
+      const friendsCountBadge = document.getElementById('friendsCountBadge');
+      if (friendsCountBadge) friendsCountBadge.textContent = String(cachedFriends.length);
+      renderFriendsModalList();
+    }
+
+    // --- POPUP AMIS (gestion ou sélection pour une place) ---
+    let friendsModalMode = 'MANAGE';
+    let friendsModalSeat = null;
+
+    function openFriendsModal(mode, seat) {
+      friendsModalMode = mode || 'MANAGE';
+      friendsModalSeat = seat || null;
+      document.getElementById('friendsModalTitle').textContent =
+        friendsModalMode === 'PICK' ? '👥 Choisir un ami' : `👥 Mes Amis (${cachedFriends.length})`;
+      document.getElementById('friendsSearchInput').value = '';
+      document.getElementById('friendsModalOverlay').classList.remove('hidden');
+      renderFriendsModalList();
+    }
+
+    function closeFriendsModal() {
+      document.getElementById('friendsModalOverlay').classList.add('hidden');
+    }
+
+    function renderFriendsModalList() {
+      const listEl = document.getElementById('friendsModalList');
+      if (!listEl) return;
+      const q = (document.getElementById('friendsSearchInput').value || '').trim().toLowerCase();
+      const items = cachedFriends
+        .map((f, idx) => ({ f, idx }))
+        .filter(({ f }) => !q || (f.username || '').toLowerCase().includes(q) || (f.code || '').toLowerCase().includes(q))
+        .sort((a, b) => (a.f.username || '').localeCompare(b.f.username || ''));
+
+      if (items.length === 0) {
+        listEl.innerHTML = `<div class="p-4 text-center text-xs text-slate-500">${
+          cachedFriends.length === 0 ? 'Aucun ami dans la liste.' : 'Aucun ami ne correspond à la recherche.'
+        }</div>`;
+        return;
       }
+
+      listEl.innerHTML = items.map(({ f, idx }) => {
+        const safeName = String(f.username).replace(/'/g, "\\'");
+        if (friendsModalMode === 'PICK') {
+          return `<button type="button" onclick="selectFriendFromModal('${safeName}', '${f.code}', '${f.profileId || ''}')"
+            class="w-full flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-800 active:bg-slate-700 border border-slate-700 text-left">
+            <span class="text-xs font-bold text-white truncate">👥 ${f.username}</span>
+            <code class="text-blue-300 text-[10px] shrink-0">${f.code}</code>
+          </button>`;
+        }
+        return `<div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-800 border border-slate-700">
+          <span class="text-xs font-bold text-white truncate">👥 ${f.username}</span>
+          <div class="flex items-center gap-2 shrink-0">
+            <code class="text-blue-300 text-[10px]">${f.code}</code>
+            <button type="button" onclick="removeFriendAt(${idx})" class="text-rose-400 font-black px-1">✕</button>
+          </div>
+        </div>`;
+      }).join('');
+    }
+
+    function selectFriendFromModal(username, code, profileId) {
+      if (friendsModalSeat) pickCachedFriend(friendsModalSeat, username, code, profileId);
+      closeFriendsModal();
     }
 
     async function removeFriendAt(index) {
