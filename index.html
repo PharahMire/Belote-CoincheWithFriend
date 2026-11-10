@@ -1552,7 +1552,9 @@
 
       let contractSuccess = false;
       if (state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE' || state.contractType === 'GENERALE') {
-        contractSuccess = takerTrickPts === 252;
+        // Générale annoncée : seule une Générale réalisée la valide (un Capot / Capot B ne suffit pas)
+        contractSuccess = takerTrickPts === 252 &&
+          (state.contractType !== 'GENERALE' || state.trickSpecial === 'GENERALE');
       } else {
         const comparisonPts = takerTrickPts + takerBelote + takerAnn;
         contractSuccess = comparisonPts >= state.contractVal && takerTrickPts > 0;
@@ -1568,7 +1570,7 @@
         finalNS = takerIsNS ? round10(takerRaw) : round10(defRaw);
         finalEW = takerIsNS ? round10(defRaw) : round10(takerRaw);
       } else {
-        const baseFall = (state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE' || defTrickPts === 252) ? 250 : 160;
+        const baseFall = (state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE' || state.contractType === 'GENERALE' || defTrickPts === 252) ? 250 : 160;
         const defRaw = (baseFall + state.contractVal) * state.mult + totalAnn;
         const round10 = x => Math.round(x / 10) * 10;
         finalNS = takerIsNS ? beloteNS : round10(defRaw) + beloteNS;
@@ -1589,7 +1591,7 @@
       const res = computeRoundScore();
       const statusEl = document.getElementById('previewStatus');
       if (res.contractSuccess) {
-        statusEl.textContent = '✓ Contrat Réussi (' + state.taker + ')';
+        statusEl.textContent = '✓ Contrat Réussi (' + (state.taker === 'EW' ? 'EO' : state.taker) + ')';
         statusEl.className = 'text-xs font-bold text-emerald-400';
       } else {
         statusEl.textContent = '✗ Contrat Chuté';
@@ -1717,7 +1719,7 @@
                 <div class="flex items-center gap-1.5 flex-wrap">
                   <span class="text-xs font-black text-white">#${r.num}</span>
                   <span class="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/15 text-amber-300">🎴 ${dealerName}</span>
-                  <span class="text-xs font-bold ${r.taker === 'NS' ? 'text-blue-300' : 'text-rose-300'}">${r.taker} ${contractTitle} ${SUIT_ICONS[r.suit]}${multTxt}</span>
+                  <span class="text-xs font-bold ${r.taker === 'NS' ? 'text-blue-300' : 'text-rose-300'}">${r.taker === 'EW' ? 'EO' : r.taker} ${contractTitle} ${SUIT_ICONS[r.suit]}${multTxt}</span>
                   <span class="text-[10px] px-1.5 py-0.2 rounded ${r.isSuccess ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}">${r.isSuccess ? '✓' : '✗'}</span>
                 </div>
                 <div class="text-[11px] text-slate-400">
