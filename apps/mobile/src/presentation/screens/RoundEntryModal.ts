@@ -2,6 +2,7 @@ import {
   AnnouncementType,
   CoincheLevel,
   ContractType,
+  getNextSeat,
   ScoreEngine,
   TrumpMode,
   type DeclaredAnnouncement,
@@ -14,6 +15,7 @@ import {
 
 export interface RoundEntryDraft {
   readonly rules: TableRulesConfig;
+  readonly dealerSeat: PlayerSeat;
   readonly takerSeat: PlayerSeat;
   readonly trump: TrumpMode;
   readonly contractType: ContractType;
@@ -26,6 +28,8 @@ export interface RoundEntryDraft {
   readonly generaleAchievedByTaker?: boolean;
   readonly beloteTeam?: TeamSide;
   readonly declarations: readonly DeclaredAnnouncement[];
+  /** Indique si la fenêtre modale de sélection des annonces est ouverte par-dessus l'écran */
+  readonly isAnnouncementModalOpen?: boolean;
 }
 
 export interface TrickBarDisplayState {
@@ -41,9 +45,9 @@ export interface TrickBarDisplayState {
 
 /**
  * Aide à la saisie rapide sur mobile (Feuille de Marque Belote & Coinche) :
+ * - Zéro liste déroulante : tout est piloté par boutons tactiles (Preneur, Donneur, Belote, Contrat) et une modale dédiée pour les Annonces.
  * - Complète automatiquement les points de l'équipe adverse sur 162 (`162 - pointsSaisis`).
  * - Remplit la barre à 100% et affiche 'Capot', 'Capot B' ou 'Générale' lorsque l'un de ces contrats/résultats est réalisé.
- * - Calcule en temps réel l'aperçu du score (Réussi / Dedans / Chute Coinche) avant validation.
  */
 export class RoundEntryFormController {
   public static readonly COINCHE_BID_LADDER = [
@@ -55,6 +59,30 @@ export class RoundEntryFormController {
     { type: ContractType.CAPOT_BELOTE, label: 'Capot Beloté (250+20)' },
     { type: ContractType.GENERALE, label: 'Générale (500)' },
   ] as const;
+
+  /** Options de boutons tactiles pour la Belote-Rebelote (remplace toute liste déroulante) */
+  public static readonly BELOTE_BUTTON_OPTIONS: ReadonlyArray<{
+    readonly value?: TeamSide;
+    readonly label: string;
+  }> = [
+    { value: undefined, label: 'Aucune' },
+    { value: 'NS', label: 'Nord-Sud (+20)' },
+    { value: 'EW', label: 'Est-Ouest (+20)' },
+  ];
+
+  /** Options de boutons tactiles dans la fenêtre modale d'Annonces */
+  public static readonly ANNOUNCEMENT_MODAL_OPTIONS: ReadonlyArray<{
+    readonly type: AnnouncementType;
+    readonly label: string;
+    readonly points: number;
+  }> = [
+    { type: AnnouncementType.TIERCE, label: 'Tierce', points: 20 },
+    { type: AnnouncementType.CINQUANTE, label: 'Cinquante', points: 50 },
+    { type: AnnouncementType.CENT, label: 'Cent', points: 100 },
+    { type: AnnouncementType.CARRE_ACES, label: 'Carré (10/D/R/As)', points: 100 },
+    { type: AnnouncementType.CARRE_NINES, label: 'Carré de 9', points: 150 },
+    { type: AnnouncementType.CARRE_JACKS, label: 'Carré de Valets', points: 200 },
+  ];
 
   public static computeAutoComplementPoints(
     enteredTeam: TeamSide,
@@ -154,9 +182,13 @@ export class RoundEntryFormController {
   /**
    * Pré-remplit le brouillon d'édition à partir d'une donne existante pour pouvoir la modifier
    */
-  public static fromExistingInput(input: RoundScoreInput): RoundEntryDraft {
+  public static fromExistingInput(
+    input: RoundScoreInput,
+    dealerSeat: PlayerSeat = 'SOUTH'
+  ): RoundEntryDraft {
     return {
       rules: input.rules,
+      dealerSeat,
       takerSeat: input.takerSeat,
       trump: input.trump,
       contractType: input.contractType,
@@ -169,6 +201,37 @@ export class RoundEntryFormController {
       generaleAchievedByTaker: input.generaleAchievedByTaker,
       beloteTeam: input.beloteTeam,
       declarations: input.declarations ?? [],
+      isAnnouncementModalOpen: false,
+    };
+  }
+
+  /** Permet de sauter un tour de donneur (passe au joueur suivant dans l'ordre du jeu) */
+  public static skipDealerTurn(draft: RoundEntryDraft): RoundEntryDraft {
+    return {
+      ...draft,
+      dealerSeat: getNextSeat(draft.dealerSeat),
+    };
+  }
+
+  /** Permet de choisir directement n'importe quel joueur comme donneur de la donne */
+  public static setDealerSeat(
+    draft: RoundEntryDraft,
+    dealerSeat: PlayerSeat
+  ): RoundEntryDraft {
+    return {
+      ...draft,
+      dealerSeat,
+    };
+  }
+
+  /** Ouvre ou ferme la petite fenêtre modale de déclaration des annonces par-dessus l'écran */
+  public static setAnnouncementModalOpen(
+    draft: RoundEntryDraft,
+    isOpen: boolean
+  ): RoundEntryDraft {
+    return {
+      ...draft,
+      isAnnouncementModalOpen: isOpen,
     };
   }
 

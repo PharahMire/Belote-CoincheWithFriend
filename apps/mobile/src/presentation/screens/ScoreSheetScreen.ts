@@ -18,8 +18,10 @@ export interface ScoreSheetViewModel {
     guestId?: string;
     claimCode?: string;
   }>;
-    roundsRows: ReadonlyArray<{
+  readonly roundsRows: ReadonlyArray<{
     roundNumber: number;
+    dealerSeat: string;
+    dealerName: string;
     contractSummary: string;
     statusBadge: 'RÉUSSI' | 'CHUTE' | 'LITIGE';
     trickDisplayNS: string;
@@ -104,6 +106,11 @@ export class ScoreSheetPresenter {
       runningNS += r.result.finalScoreNS;
       runningEW += r.result.finalScoreEW;
 
+      const dealerParticipant = game.participants.find(
+        (p) => p.seat === r.dealerSeat
+      );
+      const dealerName = dealerParticipant?.displayName ?? r.dealerSeat;
+
       const coincheSuffix =
         r.input.coincheLevel === 'SURCOINCHE'
           ? ' 🔥 Surcoinché (x4)'
@@ -133,6 +140,8 @@ export class ScoreSheetPresenter {
 
       return {
         roundNumber: r.roundNumber,
+        dealerSeat: r.dealerSeat,
+        dealerName,
         contractSummary,
         statusBadge,
         trickDisplayNS: r.result.trickDisplayNS,

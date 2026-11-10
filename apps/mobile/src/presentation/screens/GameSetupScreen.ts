@@ -18,16 +18,24 @@ export type SeatSelectionInput =
   | { type: 'OFFLINE_QR'; qrPayload: OfflinePlayerQrPayload }
   | { type: 'GUEST'; guestId: string };
 
+export type TargetScoreOption = 500 | 1000 | 1500 | 2000;
+
 export interface GameSetupDraft {
   readonly mode: GameMode;
-  readonly targetScore: number;
+  readonly targetScore: TargetScoreOption;
+  readonly initialDealerSeat: PlayerSeat;
   readonly rules: TableRulesConfig;
   readonly seats: Readonly<Record<PlayerSeat, SeatSelectionInput>>;
 }
 
 export class GameSetupController {
+  /** Paliers de score cible proposés en boutons tactiles (sans liste déroulante) */
+  public static readonly TARGET_SCORE_OPTIONS: readonly TargetScoreOption[] = [
+    500, 1000, 1500, 2000,
+  ];
+
   public static createDefaultDraft(
-    currentUser: UserProfile,
+    _currentUser: UserProfile,
     existingGuests: readonly LocalGuestProfile[],
     cachedFriends: readonly FriendEntry[]
   ): GameSetupDraft {
@@ -64,6 +72,7 @@ export class GameSetupController {
     return {
       mode: 'COINCHE',
       targetScore: 1000,
+      initialDealerSeat: 'SOUTH',
       rules: DEFAULT_COINCHE_RULES,
       seats: {
         SOUTH: { type: 'CURRENT_USER' },
@@ -83,6 +92,16 @@ export class GameSetupController {
       mode,
       rules:
         mode === 'BELOTE_CLASSIC' ? DEFAULT_BELOTE_RULES : DEFAULT_COINCHE_RULES,
+    };
+  }
+
+  public static setTargetScore(
+    draft: GameSetupDraft,
+    targetScore: TargetScoreOption
+  ): GameSetupDraft {
+    return {
+      ...draft,
+      targetScore,
     };
   }
 }

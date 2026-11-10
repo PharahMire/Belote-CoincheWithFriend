@@ -1,6 +1,7 @@
 import {
   DEFAULT_BELOTE_RULES,
   DEFAULT_COINCHE_RULES,
+  getNextSeat,
   type GameMode,
   type PlayerSeat,
   type RoundScoreInput,
@@ -43,6 +44,8 @@ export interface AppViewModelState {
    * elle s'ouvre uniquement lorsqu'on crée une nouvelle partie ou qu'on ouvre/modifie une partie depuis l'historique.
    */
   readonly isScoreSheetOpen: boolean;
+  /** Donneur actuel de la prochaine donne (modifiable si on saute un tour) */
+  readonly currentDealerSeat: PlayerSeat;
   /** Si renseigné, indique le numéro de la donne en cours d'édition sur la feuille de marque */
   readonly editingRoundNumber?: number;
   readonly editingRoundRecord?: PersistedRoundRecord;
@@ -66,6 +69,7 @@ export class BeloteAppStore {
   /** La feuille de marque est fermée sur l'accueil tant qu'on ne crée/modifie pas une partie */
   private isScoreSheetOpen = false;
   private activeGameId?: string;
+  private currentDealerSeat: PlayerSeat = 'SOUTH';
   private editingRoundNumber?: number;
   private statsModeFilter: GameMode | 'ALL' = 'ALL';
   private readonly listeners = new Set<(state: AppViewModelState) => void>();
@@ -100,6 +104,9 @@ export class BeloteAppStore {
     return {
       activeHomeTab: this.activeHomeTab,
       isScoreSheetOpen: this.isScoreSheetOpen && activeGame !== undefined,
+      currentDealerSeat: editingRoundRecord
+        ? editingRoundRecord.dealerSeat
+        : this.currentDealerSeat,
       editingRoundNumber: this.editingRoundNumber,
       editingRoundRecord,
       currentUser,
@@ -123,11 +130,29 @@ export class BeloteAppStore {
     this.notify();
   }
 
+  /** Permet de changer manuellement le donneur (ou de sauter un tour) */
+  public setCurrentDealerSeat(seat: PlayerSeat): void {
+    this.currentDealerSeat = seat;
+    this.notify();
+  }
+
+  /** Passe au donneur suivant si on saute un tour / fausse donne */
+  public skipDealerTurn(): PlayerSeat {
+    this.currentDealerSeat = getNextSeat(this.currentDealerSeat);
+    this.notify();
+    return this.currentDealerSeat;
+  }
+
   /** Ouvre la Feuille de Marque pour consulter ou modifier une partie existante depuis l'Historique */
   public selectGameFromHistory(gameId: string): void {
     this.activeGameId = gameId;
     this.isScoreSheetOpen = true;
     this.editingRoundNumber = undefined;
+    const game = this.repo.getAllGames().find((g) => g.id === gameId);
+    if (game && game.rounds.length > 0) {
+      const lastRound = game.rounds[game.rounds.length - 1];
+      this.currentDealerSeat = getNextSeat(lastRound.dealerSeat);
+    }
     this.notify();
   }
 
@@ -144,6 +169,11 @@ export class BeloteAppStore {
   /** Passe la feuille de marque en mode édition d'une donne existante */
   public startEditingRound(roundNumber: number): void {
     this.editingRoundNumber = roundNumber;
+    const activeGame = this.getState().activeGame;
+    const round = activeGame?.rounds.find((r) => r.roundNumber === roundNumber);
+    if (round) {
+      this.currentDealerSeat = round.dealerSeat;
+    }
     this.notify();
   }
 
@@ -169,10 +199,11 @@ export class BeloteAppStore {
     return friend;
   }
 
-  /** Crée une nouvelle partie et ouvre immédiatement sa Feuille de Marque */
+  /** Crée une nouvelle partie (supporte 500, 1000, 1500, 2000 pts) et ouvre immédiatement sa Feuille de Marque */
   public startNewGame(params: {
     mode: GameMode;
     targetScore?: number;
+    initialDealerSeat?: PlayerSeat;
     customRules?: Partial<TableRulesConfig>;
     seats: Readonly<
       Record<
@@ -197,6 +228,7 @@ export class BeloteAppStore {
     });
 
     this.activeGameId = game.id;
+    this.currentDealerSeat = params.initialDealerSeat ?? 'SOUTH';
     this.isScoreSheetOpen = true;
     this.editingRoundNumber = undefined;
     this.notify();
@@ -212,15 +244,17 @@ export class BeloteAppStore {
       throw new Error('Aucune partie active.');
     }
     const updated = this.repo.recordRound(current.id, dealerSeat, input);
+    this.currentDealerSeat = getNextSeat(dealerSeat);
     this.editingRoundNumber = undefined;
     this.notify();
     return updated;
   }
 
-  /** Modifie une donne existante de la partie active (au lieu de l'annuler) */
+  /** Modifie une donne existante de la partie active (y compris son donneur si modifié) */
   public updateRoundInActiveGame(
     roundNumber: number,
-    updatedInput: RoundScoreInput
+    updatedInput: RoundScoreInput,
+    updatedDealerSeat?: PlayerSeat
   ): GameRecord {
     const current = this.getState().activeGame;
     if (!current) {
@@ -229,7 +263,8 @@ export class BeloteAppStore {
     const updated = this.repo.updateRound(
       current.id,
       roundNumber,
-      updatedInput
+      updatedInput,
+      updatedDealerSeat ?? this.currentDealerSeat
     );
     this.editingRoundNumber = undefined;
     this.notify();

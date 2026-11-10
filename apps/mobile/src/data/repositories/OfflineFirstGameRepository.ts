@@ -297,7 +297,8 @@ export class OfflineFirstGameRepository {
   public updateRound(
     gameId: string,
     roundNumber: number,
-    updatedInput: RoundScoreInput
+    updatedInput: RoundScoreInput,
+    updatedDealerSeat?: PlayerSeat
   ): GameRecord {
     const game = this.games.get(gameId);
     if (!game) {
@@ -317,6 +318,7 @@ export class OfflineFirstGameRepository {
 
     const updatedRoundRecord: PersistedRoundRecord = {
       ...existingRound,
+      dealerSeat: updatedDealerSeat ?? existingRound.dealerSeat,
       input: updatedInput,
       result: newResult,
       clientHlc: hlc,

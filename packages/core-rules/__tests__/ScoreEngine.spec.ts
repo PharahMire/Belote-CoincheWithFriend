@@ -314,10 +314,16 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       issuedAt: 1700000000000,
     };
 
-    // 3. Il lance une Partie #1 de Coinche -> La Feuille de Marque s'ouvre automatiquement !
+    // 3. Il lance une Partie #1 de Coinche (vérification du choix 2000 pts dans GameSetupController et du Donneur)
+    const { GameSetupController } = await import(
+      '../../../apps/mobile/src/presentation/screens/GameSetupScreen.ts'
+    );
+    assert.deepEqual(GameSetupController.TARGET_SCORE_OPTIONS, [500, 1000, 1500, 2000]);
+
     const game1 = appStore.startNewGame({
       mode: 'COINCHE',
       targetScore: 500,
+      initialDealerSeat: 'SOUTH',
       seats: {
         SOUTH: { type: 'CURRENT_USER' },
         NORTH: { type: 'GUEST', guestId: lucasGuest.guestId },
@@ -326,6 +332,13 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       },
     });
     assert.equal(appStore.getState().isScoreSheetOpen, true);
+    assert.equal(appStore.getState().currentDealerSeat, 'SOUTH');
+
+    // L'utilisateur décide de sauter un tour de donneur (SOUTH -> WEST) ou de choisir directement NORTH
+    appStore.skipDealerTurn();
+    assert.equal(appStore.getState().currentDealerSeat, 'WEST');
+    appStore.setCurrentDealerSeat('SOUTH');
+    assert.equal(appStore.getState().currentDealerSeat, 'SOUTH');
 
     // 4. Saisie d'une donne initiale (contrat 100 réussi -> 200 pts), puis MODIFICATION de cette donne #1 en Capot Beloté (520 pts)
     appStore.addRoundToActiveGame('SOUTH', {
@@ -338,6 +351,8 @@ describe('Scénario Complet "Mode Bateau" (Hors-Ligne -> Reconnexion -> Liaison 
       rawTrickPointsNS: 100,
       rawTrickPointsEW: 62,
     });
+    // Après la donne #1 (donneur SOUTH), le donneur de la donne #2 passe automatiquement à WEST
+    assert.equal(appStore.getState().currentDealerSeat, 'WEST');
     assert.equal(appStore.getState().activeGame?.scoreNS, 200);
     assert.equal(appStore.getState().activeGame?.status, 'IN_PROGRESS');
 
