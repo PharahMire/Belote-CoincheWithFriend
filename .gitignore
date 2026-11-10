@@ -5,3 +5,13 @@ build/
 *.log
 .DS_Store
 coverage/
+
+# Fichiers d'environnement contenant les vraies clés (ne jamais commiter sur GitHub)
+.env
+.env.local
+.env.*.local
+apps/mobile/.env
+apps/mobile/.env.local
+!.env.example
+!apps/mobile/.env.example
+
