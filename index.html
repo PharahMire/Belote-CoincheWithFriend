@@ -318,8 +318,8 @@
         <div id="friendsListContainer" class="flex flex-wrap gap-2 pt-1"></div>
       </div>
 
-      <!-- 3. Configuration Projet Supabase -->
-      <div class="rounded-2xl p-4 border border-slate-800 bg-slate-900/90 space-y-3">
+      <!-- 3. Configuration Projet Supabase (Masquée automatiquement dès que GitHub Secrets est actif) -->
+      <div id="supabaseManualConfigCard" class="rounded-2xl p-4 border border-slate-800 bg-slate-900/90 space-y-3">
         <div class="flex items-center justify-between">
           <div>
             <h2 class="text-sm font-bold uppercase tracking-wider text-blue-300">☁️ Clés du Projet Supabase</h2>
@@ -738,6 +738,19 @@
       accessToken: null
     };
 
+    // Ces deux constantes sont automatiquement remplacées par GitHub Actions (Secrets) lors du déploiement GitHub Pages :
+    const INJECTED_SUPABASE_URL = '__SUPABASE_URL_PLACEHOLDER__';
+    const INJECTED_SUPABASE_ANON_KEY = '__SUPABASE_ANON_KEY_PLACEHOLDER__';
+
+    function hasInjectedSupabaseConfig() {
+      return (
+        Boolean(INJECTED_SUPABASE_URL) &&
+        !INJECTED_SUPABASE_URL.includes('__SUPABASE_') &&
+        Boolean(INJECTED_SUPABASE_ANON_KEY) &&
+        !INJECTED_SUPABASE_ANON_KEY.includes('__SUPABASE_')
+      );
+    }
+
     let supabaseConfig = { url: '', anonKey: '' };
     let cachedFriends = [];
     let gamesDatabase = [];
@@ -799,6 +812,13 @@
         }
       } catch (_e) {}
 
+      // Priorité 1 : Clés injectées automatiquement par GitHub Actions Secrets (aucun joueur n'a besoin de les saisir)
+      if (hasInjectedSupabaseConfig()) {
+        supabaseConfig.url = INJECTED_SUPABASE_URL.trim().replace(/\/+$/, '');
+        supabaseConfig.anonKey = INJECTED_SUPABASE_ANON_KEY.trim();
+      }
+
+      // Priorité 2 : Lien d'invitation magique (?sb_url=...&sb_key=...)
       const params = new URLSearchParams(window.location.search);
       const urlParam = params.get('sb_url');
       const keyParam = params.get('sb_key');
@@ -1822,6 +1842,11 @@
       } else {
         authBadge.textContent = 'Non connecté';
         authBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30';
+      }
+
+      const manualCard = document.getElementById('supabaseManualConfigCard');
+      if (manualCard) {
+        manualCard.classList.toggle('hidden', hasInjectedSupabaseConfig());
       }
 
       document.getElementById('sbUrlInput').value = supabaseConfig.url || '';
