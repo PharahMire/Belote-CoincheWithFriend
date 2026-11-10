@@ -279,7 +279,7 @@
           </div>
         </div>
 
-        <div class="p-3.5 rounded-xl bg-slate-800/50 border border-slate-700/80 space-y-2.5">
+        <div id="authLoginFormBlock" class="p-3.5 rounded-xl bg-slate-800/50 border border-slate-700/80 space-y-2.5">
           <div class="text-xs font-bold text-white">🔐 Inscription / Connexion (Supabase Auth)</div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input id="authUsernameInput" type="text" placeholder="Votre Pseudo (ex: Pharah)" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white" />
@@ -295,6 +295,16 @@
             </button>
           </div>
           <div id="authFeedbackMsg" class="text-xs text-slate-400"></div>
+        </div>
+
+        <div id="authLoggedInActionsBlock" class="hidden">
+          <button
+            type="button"
+            onclick="handleSupabaseLogout()"
+            class="w-full py-2.5 px-4 rounded-xl bg-rose-600/20 active:bg-rose-600/30 border border-rose-500/40 text-rose-300 text-xs font-bold flex items-center justify-center gap-2 transition"
+          >
+            🚪 Se déconnecter
+          </button>
         </div>
       </div>
 
@@ -1922,21 +1932,31 @@
     }
 
     // --- ONGLET 4 : AUTH SUPABASE, AMIS & SYNCHRONISATION ---
+    function isUserLoggedIn() {
+      return Boolean(currentUser.accessToken || currentUser.id || currentUser.email);
+    }
+
     function renderAccountTabUI() {
+      const connected = isUserLoggedIn();
       document.getElementById('myProfileUsername').textContent = currentUser.username;
-      document.getElementById('myProfileEmail').textContent = currentUser.email || 'Non connecté à Supabase Auth';
+      document.getElementById('myProfileEmail').textContent = currentUser.email || (connected ? 'Compte synchronisé' : 'Non connecté à Supabase Auth');
       document.getElementById('myProfileCode').textContent = currentUser.friendCode;
-      document.getElementById('authUsernameInput').value = currentUser.username;
+      document.getElementById('authUsernameInput').value = currentUser.username === 'Joueur 1' ? '' : currentUser.username;
       document.getElementById('authEmailInput').value = currentUser.email || '';
 
       const authBadge = document.getElementById('authStatusBadge');
-      if (currentUser.accessToken) {
+      if (connected) {
         authBadge.textContent = '☁️ Connecté';
         authBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
       } else {
         authBadge.textContent = 'Non connecté';
         authBadge.className = 'px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30';
       }
+
+      const loginFormBlock = document.getElementById('authLoginFormBlock');
+      const loggedInActionsBlock = document.getElementById('authLoggedInActionsBlock');
+      if (loginFormBlock) loginFormBlock.classList.toggle('hidden', connected);
+      if (loggedInActionsBlock) loggedInActionsBlock.classList.toggle('hidden', !connected);
 
       const manualCard = document.getElementById('supabaseManualConfigCard');
       if (manualCard) {
@@ -2323,6 +2343,40 @@
         msgEl.textContent = `❌ ${err.message}`;
         msgEl.className = 'text-xs text-rose-400 font-semibold';
       }
+    }
+
+    async function handleSupabaseLogout() {
+      if (isEffectivelyOnline() && supabaseConfig.url && supabaseConfig.anonKey && currentUser.accessToken) {
+        try {
+          await fetch(`${supabaseConfig.url}/auth/v1/logout`, {
+            method: 'POST',
+            headers: buildSupabaseHeaders()
+          });
+        } catch (_e) {}
+      }
+
+      currentUser = {
+        id: null,
+        username: 'Joueur 1',
+        email: null,
+        friendCode: 'BLT-' + Math.floor(1000 + Math.random() * 9000),
+        accessToken: null,
+        refreshToken: null
+      };
+      cachedFriends = [];
+      newGameConfig.seats.NORTH = { type: 'ME', name: currentUser.username, badge: 'Mon Compte', code: null, profileId: null };
+
+      const pwdEl = document.getElementById('authPasswordInput');
+      if (pwdEl) pwdEl.value = '';
+      const msgEl = document.getElementById('authFeedbackMsg');
+      if (msgEl) msgEl.textContent = '';
+
+      savePersistedState();
+      renderAccountTabUI();
+      renderSeatsConfigGrid();
+      renderHistoryLists();
+      computeAndRenderDynamicStats();
+      showToast('👋 Vous êtes déconnecté.', 'info');
     }
 
     async function addFriendByCodeOrName() {
