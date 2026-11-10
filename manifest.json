@@ -1,0 +1,25 @@
+{
+  "name": "Belote & Coinche With Friends",
+  "short_name": "BeloteCoinche",
+  "description": "Carnet de scores intelligent, social et Offline-First pour Belote Classique et Coinche.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%230f172a'/%3E%3Crect x='12' y='12' width='168' height='168' rx='32' fill='%231e293b' stroke='%233b82f6' stroke-width='6'/%3E%3Ctext x='96' y='125' font-size='96' text-anchor='middle' fill='%2360a5fa'%3E%E2%99%A0%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='110' fill='%230f172a'/%3E%3Crect x='32' y='32' width='448' height='448' rx='88' fill='%231e293b' stroke='%233b82f6' stroke-width='16'/%3E%3Ctext x='256' y='335' font-size='260' text-anchor='middle' fill='%2360a5fa'%3E%E2%99%A0%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

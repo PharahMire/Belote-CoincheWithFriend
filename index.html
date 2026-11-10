@@ -1,0 +1,2184 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="BeloteCoinche" />
+  <link rel="manifest" href="./manifest.json" />
+  <title>Belote & Coinche With Friends</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --background: #0f172a;
+      --foreground: #f8fafc;
+      --card: #1e293b;
+      --card-foreground: #f8fafc;
+      --muted: #334155;
+      --muted-foreground: #94a3b8;
+      --accent: #3b82f6;
+      --border: rgba(255, 255, 255, 0.1);
+    }
+    body {
+      background-color: var(--background);
+      color: var(--foreground);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .suit-btn.active {
+      border-color: #3b82f6;
+      background-color: rgba(59, 130, 246, 0.22);
+      transform: translateY(-1px);
+    }
+    .tab-btn.active {
+      background-color: #2563eb;
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35);
+    }
+    input[type="range"] {
+      accent-color: #3b82f6;
+    }
+  </style>
+</head>
+<body class="min-h-screen p-3 md:p-6">
+  <div class="max-w-6xl mx-auto space-y-4">
+
+    <!-- HEADER: STATUT RESEAU, PWA & NAVIGATION -->
+    <header class="rounded-2xl p-3.5 border border-slate-700/80 bg-slate-900/90 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-xl font-bold text-blue-400">
+          ♠️
+        </div>
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <h1 class="text-base md:text-lg font-bold tracking-tight">Belote & Coinche With Friends</h1>
+            <span id="pwaStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 font-semibold">
+              📲 Mode Hors-Ligne Actif
+            </span>
+          </div>
+          <p class="text-xs text-slate-400">Stockage local persistant • Sync Cloud Supabase • Zéro liste déroulante</p>
+        </div>
+      </div>
+
+      <!-- Navigation : 4 Onglets d'Accueil OU Bouton Retour depuis la Feuille de Marque -->
+      <div id="homeTabsNav" class="flex items-center gap-1.5 bg-slate-800/90 p-1.5 rounded-xl border border-slate-700 flex-wrap">
+        <button onclick="switchHomeTab('new_game')" id="tab-new_game" class="tab-btn active px-3 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-1.5">
+          ➕ 1. Nouvelle Partie
+        </button>
+        <button onclick="switchHomeTab('history')" id="tab-history" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition flex items-center gap-1.5">
+          📚 2. Historique <span id="historyCountBadge" class="px-1.5 py-0.2 rounded-full bg-slate-700 text-[10px]">0</span>
+        </button>
+        <button onclick="switchHomeTab('stats')" id="tab-stats" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition flex items-center gap-1.5">
+          📊 3. Statistiques
+        </button>
+        <button onclick="switchHomeTab('accounts')" id="tab-accounts" class="tab-btn px-3 py-1.5 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition flex items-center gap-1.5">
+          👤 4. Comptes & QR
+        </button>
+      </div>
+
+      <!-- Barre visible uniquement quand la Feuille de Marque est ouverte -->
+      <div id="scoreSheetNav" class="hidden items-center gap-2">
+        <span class="px-2.5 py-1 rounded-lg bg-indigo-500/20 border border-indigo-500/40 text-indigo-300 text-xs font-semibold">
+          📋 Feuille de Marque Active
+        </span>
+        <button onclick="closeScoreSheet()" class="px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-white border border-slate-600 transition flex items-center gap-1.5">
+          ⬅️ Retour à l'Accueil
+        </button>
+      </div>
+
+      <!-- Statut Réseau Réel + Bouton Sync / Simulation Hors-Ligne -->
+      <div class="flex items-center gap-2">
+        <div id="networkBadge" class="flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">
+          <span id="networkDot" class="w-2 h-2 rounded-full bg-emerald-400"></span>
+          <span id="networkText">En Ligne</span>
+        </div>
+        <button onclick="toggleSimulatedOffline()" id="btnToggleNet" class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer">
+          Simuler Bateau (Hors-Ligne)
+        </button>
+      </div>
+    </header>
+
+    <!-- =================================================================== -->
+    <!-- ÉCRAN D'ACCUEIL — ONGLET 1 : CRÉATION D'UNE PARTIE (100% BOUTONS)    -->
+    <!-- =================================================================== -->
+    <section id="view-home-new_game" class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+      <div class="lg:col-span-7 rounded-2xl p-5 md:p-6 border border-slate-700/80 bg-slate-900/90 space-y-5 shadow-xl">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+          <div>
+            <span class="text-[11px] uppercase tracking-wider font-bold text-blue-400">Onglet 1 • Accueil</span>
+            <h2 class="text-xl font-black text-white mt-0.5">Créer une Nouvelle Partie</h2>
+            <p class="text-xs text-slate-400">Nommez votre partie et liez chaque joueur via Ami en cache, Scan QR ou Invité.</p>
+          </div>
+          <span class="text-3xl">🃏</span>
+        </div>
+
+        <!-- NOM DE LA PARTIE (Avec valeur par défaut automatique si vide) -->
+        <div class="p-3.5 rounded-xl bg-slate-800/70 border border-slate-700 space-y-2">
+          <div class="flex items-center justify-between flex-wrap gap-1">
+            <label for="newGameTitle" class="text-xs text-blue-300 font-bold flex items-center gap-1.5">
+              🏷️ Nom de la partie
+            </label>
+            <span class="text-[11px] text-slate-400">Par défaut si vide : <strong id="defaultTitlePreview" class="text-slate-200">Soirée Coinche #1</strong></span>
+          </div>
+          <div class="flex items-center gap-2">
+            <input
+              id="newGameTitle"
+              type="text"
+              placeholder="Ex : Soirée Coinche Paris, Vacances Bateau... (ou laisser vide)"
+              class="w-full bg-slate-900 border border-slate-600 focus:border-blue-500 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 outline-none"
+            />
+            <button
+              type="button"
+              onclick="fillSuggestedTitle()"
+              class="shrink-0 px-3 py-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-[11px] font-bold text-slate-200 transition cursor-pointer"
+            >
+              ✨ Nom auto
+            </button>
+          </div>
+        </div>
+
+        <!-- Choix Mode de Jeu & Score Cible -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div class="space-y-1.5">
+            <label class="text-xs text-slate-300 font-semibold block">Mode de jeu</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" onclick="selectNewGameMode('COINCHE')" id="modeBtn-COINCHE" class="py-2.5 px-2.5 rounded-xl border text-left transition bg-blue-600/25 border-blue-500 text-white">
+                <div class="text-xs font-black">🔥 Coinche</div>
+                <div class="text-[10px] text-blue-200">Enchères & SA/TA</div>
+              </button>
+              <button type="button" onclick="selectNewGameMode('BELOTE_CLASSIC')" id="modeBtn-BELOTE_CLASSIC" class="py-2.5 px-2.5 rounded-xl border text-left transition bg-slate-800 border-slate-700 text-slate-300">
+                <div class="text-xs font-black">♠️ Belote</div>
+                <div class="text-[10px] text-slate-400">Classique 162 pts</div>
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-xs text-slate-300 font-semibold block">Score cible</label>
+            <div class="grid grid-cols-4 gap-1.5">
+              <button type="button" onclick="selectNewGameTarget(500)" id="targetBtn-500" class="py-2.5 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300">500</button>
+              <button type="button" onclick="selectNewGameTarget(1000)" id="targetBtn-1000" class="py-2.5 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300">1000</button>
+              <button type="button" onclick="selectNewGameTarget(1500)" id="targetBtn-1500" class="py-2.5 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300">1500</button>
+              <button type="button" onclick="selectNewGameTarget(2000)" id="targetBtn-2000" class="py-2.5 rounded-xl border text-xs font-bold transition bg-blue-600 border-blue-400 text-white shadow">2000</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- JOUEURS AUTOUR DE LA TABLE & LIAISON -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between flex-wrap gap-1">
+            <label class="text-xs text-slate-200 font-bold">👥 Joueurs autour de la table & Liaison de comptes</label>
+            <span class="text-[11px] text-slate-400">Choisissez <strong class="text-emerald-300">Ami</strong>, <strong class="text-blue-300">Code/QR</strong> ou <strong class="text-amber-300">Invité</strong></span>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" id="seatsConfigGrid"></div>
+        </div>
+
+        <!-- Premier Donneur de la Partie (Boutons Tactiles) -->
+        <div class="space-y-2">
+          <label class="text-xs text-slate-300 font-semibold block">🎴 Premier Donneur de la partie</label>
+          <div id="initialDealerContainer" class="grid grid-cols-4 gap-2"></div>
+        </div>
+
+        <button onclick="createAndOpenScoreSheet()" class="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition cursor-pointer flex items-center justify-center gap-2">
+          🚀 Lancer la Partie & Ouvrir la Feuille de Marque
+        </button>
+      </div>
+
+      <!-- Colonne droite : Explication Liaison & Parties récentes -->
+      <div class="lg:col-span-5 space-y-4">
+        <div class="rounded-2xl p-4 border border-blue-500/30 bg-blue-950/20 space-y-2">
+          <h3 class="text-xs font-bold uppercase tracking-wider text-blue-300">📲 Fonctionnement Hors-Ligne (PWA)</h3>
+          <p class="text-xs text-slate-300 leading-relaxed">
+            Toutes vos parties sont enregistrées automatiquement dans la mémoire de votre téléphone (<code class="text-blue-200">localStorage</code> + <code class="text-blue-200">Service Worker</code>). Même en <strong>Mode Avion</strong> ou en fermant le navigateur, rien n'est perdu !
+          </p>
+        </div>
+
+        <div class="rounded-2xl p-5 border border-slate-700/80 bg-slate-900/90 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-white">⚡ Parties récentes</h3>
+            <button onclick="switchHomeTab('history')" class="text-xs text-blue-400 hover:underline">Voir tout l'historique →</button>
+          </div>
+          <div id="quickResumeList" class="space-y-2.5 pt-1"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- ÉCRAN D'ACCUEIL — ONGLET 2 : HISTORIQUE DES PARTIES                 -->
+    <!-- =================================================================== -->
+    <section id="view-home-history" class="hidden space-y-4">
+      <div class="rounded-2xl p-5 border border-slate-700/80 bg-slate-900/90 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <span class="text-[11px] uppercase tracking-wider font-bold text-blue-400">Onglet 2 • Accueil</span>
+          <h2 class="text-lg font-bold text-white">📚 Historique Complet des Parties</h2>
+          <p class="text-xs text-slate-400">
+            Une partie <strong class="text-emerald-300">Terminée & Synchronisée (🔒)</strong> a ses scores verrouillés pour protéger les stats, mais son <strong class="text-amber-300">nom</strong> reste modifiable !
+          </p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button onclick="syncWithSupabaseNow()" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-bold text-white transition cursor-pointer">
+            ☁️ Synchroniser avec Supabase
+          </button>
+          <button onclick="switchHomeTab('new_game')" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white transition cursor-pointer">
+            + Nouvelle Partie
+          </button>
+        </div>
+      </div>
+      <div id="historyGrid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- ÉCRAN D'ACCUEIL — ONGLET 3 : STATISTIQUES & RIVALITÉS               -->
+    <!-- =================================================================== -->
+    <section id="view-home-stats" class="hidden space-y-4">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="rounded-2xl p-4 border border-slate-700/80 bg-slate-900/90">
+          <span class="text-xs text-slate-400">Taux de Victoire Global</span>
+          <div id="statWinRate" class="text-2xl font-black text-emerald-400 mt-1">0%</div>
+          <span id="statWinRecord" class="text-[11px] text-slate-500">0 V — 0 D</span>
+        </div>
+        <div class="rounded-2xl p-4 border border-slate-700/80 bg-slate-900/90">
+          <span class="text-xs text-slate-400">Contrats Réussis</span>
+          <div id="statContractRate" class="text-2xl font-black text-blue-400 mt-1">0%</div>
+          <span id="statTotalRounds" class="text-[11px] text-slate-500">0 donne jouée</span>
+        </div>
+        <div class="rounded-2xl p-4 border border-slate-700/80 bg-slate-900/90">
+          <span class="text-xs text-slate-400">Capots & Capots Belotés</span>
+          <div id="statCapotsCount" class="text-2xl font-black text-amber-400 mt-1">0 réalisés</div>
+          <span id="statCapotBeloteSub" class="text-[11px] text-slate-500">sur l'ensemble des parties</span>
+        </div>
+        <div class="rounded-2xl p-4 border border-slate-700/80 bg-slate-900/90">
+          <span class="text-xs text-slate-400">Meilleur Partenaire</span>
+          <div id="statBestPartnerName" class="text-xl font-black text-purple-400 mt-1">—</div>
+          <span id="statBestPartnerSub" class="text-[11px] text-slate-500">Terminez une partie</span>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="rounded-2xl p-5 border border-emerald-500/30 bg-emerald-950/15 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-emerald-400">🎯 Joueur contre qui on gagne le plus</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">Proie Favorite</span>
+          </div>
+          <div id="statPreyName" class="text-base font-bold text-white">—</div>
+          <div id="statPreyDetail" class="text-xs text-emerald-300 font-semibold">Aucune partie terminée</div>
+        </div>
+
+        <div class="rounded-2xl p-5 border border-rose-500/30 bg-rose-950/15 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-rose-400">⚡ Joueur contre qui on perd le plus</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-bold">Bête Noire</span>
+          </div>
+          <div id="statNemesisName" class="text-base font-bold text-white">—</div>
+          <div id="statNemesisDetail" class="text-xs text-rose-300 font-semibold">Aucune défaite enregistrée</div>
+        </div>
+
+        <div class="rounded-2xl p-5 border border-blue-500/30 bg-blue-950/15 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold uppercase tracking-wider text-blue-400">🤝 Meilleur Duo (Partenaire)</span>
+            <span class="text-xs px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 font-bold">Duo Or</span>
+          </div>
+          <div id="statDuoName" class="text-base font-bold text-white">—</div>
+          <div id="statDuoDetail" class="text-xs text-blue-300 font-semibold">Aucune partie terminée</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- ÉCRAN D'ACCUEIL — ONGLET 4 : COMPTES, SUPABASE & QR CODES           -->
+    <!-- =================================================================== -->
+    <section id="view-home-accounts" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <!-- Colonne gauche : Connexion Joueur & QR Code -->
+      <div class="lg:col-span-6 rounded-2xl p-5 border border-slate-700/80 bg-slate-900/90 space-y-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300">Mon Profil Joueur & Connexion</h2>
+            <p class="text-xs text-slate-400">Créez un compte ou connectez-vous pour obtenir votre Code Ami</p>
+          </div>
+          <span id="authStatusBadge" class="px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">Profil Local</span>
+        </div>
+
+        <!-- Carte Profil + QR Code -->
+        <div class="p-4 rounded-2xl bg-slate-800/90 border border-slate-700 flex items-center gap-4">
+          <div class="w-20 h-20 rounded-xl bg-white p-2 flex flex-col items-center justify-center text-slate-900 font-mono text-[10px] leading-tight shrink-0 shadow-inner">
+            <div class="grid grid-cols-4 gap-0.5 w-full h-full">
+              <div class="bg-slate-900"></div><div class="bg-slate-900"></div><div></div><div class="bg-slate-900"></div>
+              <div class="bg-slate-900"></div><div></div><div class="bg-slate-900"></div><div></div>
+              <div></div><div class="bg-slate-900"></div><div class="bg-slate-900"></div><div class="bg-slate-900"></div>
+              <div class="bg-slate-900"></div><div></div><div class="bg-slate-900"></div><div class="bg-slate-900"></div>
+            </div>
+          </div>
+          <div class="space-y-1">
+            <div id="myProfileUsername" class="text-base font-bold text-white">Alex</div>
+            <div id="myProfileEmail" class="text-xs text-slate-400">Mode Hors-Ligne Local</div>
+            <div id="myProfileCode" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-blue-500/20 text-blue-300 text-xs font-mono font-bold">
+              Code Ami : BLT-4829
+            </div>
+          </div>
+        </div>
+
+        <!-- Formulaire Inscription / Connexion Supabase -->
+        <div class="p-4 rounded-xl bg-slate-800/60 border border-slate-700 space-y-3">
+          <div class="text-xs font-bold text-white">🔐 S'inscrire ou se connecter (Supabase Auth)</div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input id="authUsernameInput" type="text" placeholder="Votre Pseudo (ex: Alex)" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+            <input id="authEmailInput" type="email" placeholder="Votre Email" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+          </div>
+          <input id="authPasswordInput" type="password" placeholder="Mot de passe (min. 6 caractères)" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+          <div class="grid grid-cols-2 gap-2">
+            <button type="button" onclick="handleSupabaseAuth('SIGNUP')" class="py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer">
+              ✨ Créer mon compte
+            </button>
+            <button type="button" onclick="handleSupabaseAuth('LOGIN')" class="py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer">
+              🔑 Me connecter
+            </button>
+          </div>
+          <div id="authFeedbackMsg" class="text-[11px] text-slate-400"></div>
+        </div>
+      </div>
+
+      <!-- Colonne droite : Connexion Base Supabase & Ajout d'Amis -->
+      <div class="lg:col-span-6 space-y-4">
+        <!-- Configuration Projet Supabase + Lien de partage entre potes -->
+        <div class="rounded-2xl p-5 border border-slate-700/80 bg-slate-900/90 space-y-3">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-sm font-bold uppercase tracking-wider text-blue-300">☁️ Connexion Base Supabase</h2>
+              <p class="text-xs text-slate-400">Stockée uniquement dans le téléphone (jamais en dur sur GitHub)</p>
+            </div>
+            <span id="sbConfigBadge" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400">Non configuré</span>
+          </div>
+
+          <div class="space-y-2">
+            <input id="sbUrlInput" type="url" placeholder="Project URL (ex: https://xxxx.supabase.co)" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+            <input id="sbKeyInput" type="text" placeholder="Publishable / Anon Key (sb_publishable_... ou eyJ...)" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white font-mono" />
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <button type="button" onclick="saveSupabaseConfig()" class="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition cursor-pointer">
+              💾 Enregistrer sur ce téléphone
+            </button>
+            <button type="button" onclick="copyMagicInviteLink()" class="px-3.5 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/40 border border-purple-500/40 text-purple-200 text-xs font-bold transition cursor-pointer">
+              📲 Copier le lien pré-configuré pour mes potes
+            </button>
+          </div>
+          <div id="sbConfigMsg" class="text-[11px] text-slate-400">
+            Astuce : Le bouton violet copie un lien que vous envoyez sur WhatsApp à vos potes pour configurer leur téléphone en 1 clic !
+          </div>
+        </div>
+
+        <!-- Ajout d'un ami (Par Code Ami BLT-XXXXX ou en cache) -->
+        <div class="rounded-2xl p-5 border border-slate-700/80 bg-slate-900/90 space-y-3">
+          <h2 class="text-sm font-bold uppercase tracking-wider text-slate-300">👥 Mes Amis (Disponibles Hors-Ligne)</h2>
+          <div class="flex gap-2">
+            <input id="addFriendQueryInput" type="text" placeholder="Code Ami (ex: BLT-8821) ou Pseudo..." class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white" />
+            <button type="button" onclick="addFriendByCodeOrName()" class="shrink-0 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition cursor-pointer">
+              + Ajouter Ami
+            </button>
+          </div>
+          <div id="friendsListContainer" class="flex flex-wrap gap-1.5 pt-1"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =================================================================== -->
+    <!-- VUE FEUILLE DE MARQUE (OUVERTE UNIQUEMENT À LA CRÉATION / ÉDITION)  -->
+    <!-- =================================================================== -->
+    <section id="view-scoresheet" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-4">
+
+      <!-- COLONNE GAUCHE (7 cols) : FEUILLE DE MARQUE & DONNES CLIQUABLES -->
+      <div class="lg:col-span-7 space-y-4">
+        <div class="rounded-2xl p-4 border border-slate-700/80 bg-slate-900/90 space-y-3">
+
+          <!-- BANDEAU D'INFORMATION SI PARTIE TERMINÉE & SYNCHRONISÉE (VERROUILLÉE) -->
+          <div id="lockedScoreBanner" class="hidden p-3 rounded-xl bg-emerald-950/40 border border-emerald-500/40 flex items-center justify-between gap-2">
+            <div class="text-xs text-emerald-200">
+              <strong>🔒 Partie terminée & synchronisée :</strong> les scores et donnes sont verrouillés pour protéger les statistiques des 4 joueurs. <span class="text-amber-300 font-semibold">Le nom de la partie reste modifiable.</span>
+            </div>
+          </div>
+
+          <!-- EN-TÊTE NOM DE LA PARTIE + BOUTON RENOMMER EN DIRECT -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">🏷️</span>
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <h2 id="activeGameTitleText" class="text-base font-black text-white">Partie</h2>
+                  <button
+                    type="button"
+                    onclick="openRenameModal(activeGameId)"
+                    class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[11px] font-bold transition cursor-pointer"
+                  >
+                    ✏️ Renommer la partie
+                  </button>
+                </div>
+                <p id="activeGameDateText" class="text-[11px] text-slate-400"></p>
+              </div>
+            </div>
+
+            <button onclick="closeScoreSheet()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition cursor-pointer">
+              ⬅️ Fermer
+            </button>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span id="activeGameModeBadge" class="px-2.5 py-1 rounded-lg bg-blue-600/20 text-blue-300 border border-blue-500/30 text-xs font-bold">Mode : Coinche</span>
+              <span id="activeGameStatusBadge" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-xs font-medium">Objectif : 2000 pts</span>
+            </div>
+            <!-- Bandeau Donneur Actuel avec bouton Sauter un tour -->
+            <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/15 border border-amber-500/30">
+              <span class="text-xs text-amber-300 font-semibold">🎴 Donneur : <strong id="headerDealerName" class="text-white">Nord</strong></span>
+              <button onclick="skipDealerTurn()" class="ml-1 px-2 py-0.5 rounded-lg bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 text-[11px] font-bold transition cursor-pointer">
+                ↻ Sauter un tour
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div class="p-3.5 rounded-xl bg-gradient-to-br from-blue-950/80 to-slate-900 border border-blue-500/40">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold uppercase tracking-wider text-blue-300">Équipe Nord-Sud</span>
+                <span id="nsPlayersLabel" class="text-[11px] text-slate-400"></span>
+              </div>
+              <div class="mt-2 flex items-baseline justify-between">
+                <span id="scoreNS" class="text-3xl font-black text-white">0</span>
+                <span id="targetNSLabel" class="text-xs text-blue-300">/ 2000 pts</span>
+              </div>
+              <div class="mt-2 w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div id="barNS" class="h-full bg-blue-500 transition-all duration-300" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <div class="p-3.5 rounded-xl bg-gradient-to-br from-rose-950/80 to-slate-900 border border-rose-500/40">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold uppercase tracking-wider text-rose-300">Équipe Est-Ouest</span>
+                <span id="ewPlayersLabel" class="text-[11px] text-slate-400"></span>
+              </div>
+              <div class="mt-2 flex items-baseline justify-between">
+                <span id="scoreEW" class="text-3xl font-black text-white">0</span>
+                <span id="targetEWLabel" class="text-xs text-rose-300">/ 2000 pts</span>
+              </div>
+              <div class="mt-2 w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                <div id="barEW" class="h-full bg-rose-500 transition-all duration-300" style="width: 0%"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feuille de Marque -->
+        <div class="rounded-2xl border border-slate-700/80 bg-slate-900/90 overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+            <div>
+              <h2 class="text-sm font-bold uppercase tracking-wider text-slate-200">📋 Feuille de Marque</h2>
+              <p class="text-[11px] text-slate-400">Touchez <span class="text-amber-300 font-semibold">✏️ Modifier</span> sur une donne pour la corriger tant que la partie n'est pas verrouillée.</p>
+            </div>
+            <span id="roundCountLabel" class="text-xs text-slate-400">0 donne</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="border-b border-slate-800 text-[11px] uppercase text-slate-400 bg-slate-950/40">
+                  <th class="py-2.5 px-3"># / Donneur</th>
+                  <th class="py-2.5 px-3">Contrat & Atout</th>
+                  <th class="py-2.5 px-3">Plis</th>
+                  <th class="py-2.5 px-3 text-right text-blue-300">Nord-Sud</th>
+                  <th class="py-2.5 px-3 text-right text-rose-300">Est-Ouest</th>
+                  <th class="py-2.5 px-3 text-center">Statut / Action</th>
+                </tr>
+              </thead>
+              <tbody id="roundsTableBody" class="divide-y divide-slate-800/70 text-xs"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- COLONNE DROITE (5 cols) : SAISIE OU MODIFICATION -->
+      <div class="lg:col-span-5 space-y-4">
+        <div id="roundFormPanel" class="rounded-2xl p-4 border border-slate-700/80 bg-slate-900/90 space-y-4 transition-all">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+            <div>
+              <h2 id="formModeTitle" class="text-sm font-bold uppercase tracking-wider text-slate-200">➕ Nouvelle Donne</h2>
+              <p id="formModeSubtitle" class="text-[11px] text-slate-400">Saisie tactile rapide sans aucune liste déroulante</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="coincheMultBadge" class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-xs font-semibold">Normal (x1)</span>
+              <button id="btnCancelEdit" onclick="cancelEditRound()" class="hidden px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">
+                ✕ Quitter l'édition
+              </button>
+            </div>
+          </div>
+
+          <!-- 0. Sélecteur du Donneur de la donne -->
+          <div class="p-3 rounded-xl bg-slate-800/60 border border-slate-700/80 space-y-2">
+            <div class="flex items-center justify-between">
+              <label class="text-xs text-amber-300 font-bold">🎴 Donneur de cette donne</label>
+              <button type="button" onclick="skipDealerTurn()" class="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-200 text-[11px] font-bold transition cursor-pointer">
+                ↻ Sauter un tour
+              </button>
+            </div>
+            <div id="roundDealerButtons" class="grid grid-cols-4 gap-1.5"></div>
+          </div>
+
+          <!-- 1. Équipe Preneuse -->
+          <div class="space-y-1.5">
+            <label class="text-xs text-slate-400 font-medium">1. Équipe Preneuse</label>
+            <div class="grid grid-cols-2 gap-2">
+              <button type="button" onclick="setTaker('NS')" id="takerNS" class="py-2.5 px-3 rounded-xl border text-xs font-bold transition bg-blue-600/30 border-blue-500 text-white">
+                Nord-Sud
+              </button>
+              <button type="button" onclick="setTaker('EW')" id="takerEW" class="py-2.5 px-3 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300">
+                Est-Ouest
+              </button>
+            </div>
+          </div>
+
+          <!-- 2. Couleur d'Atout -->
+          <div class="space-y-1.5">
+            <label class="text-xs text-slate-400 font-medium">2. Couleur d'Atout (ou SA / TA)</label>
+            <div class="grid grid-cols-6 gap-1.5">
+              <button type="button" onclick="setSuit('SPADES')" id="suit-SPADES" class="suit-btn active py-2 rounded-xl border border-slate-700 bg-slate-800 text-center text-base font-bold">♠️</button>
+              <button type="button" onclick="setSuit('HEARTS')" id="suit-HEARTS" class="suit-btn py-2 rounded-xl border border-slate-700 bg-slate-800 text-center text-base font-bold text-rose-400">♥️</button>
+              <button type="button" onclick="setSuit('DIAMONDS')" id="suit-DIAMONDS" class="suit-btn py-2 rounded-xl border border-slate-700 bg-slate-800 text-center text-base font-bold text-rose-400">♦️</button>
+              <button type="button" onclick="setSuit('CLUBS')" id="suit-CLUBS" class="suit-btn py-2 rounded-xl border border-slate-700 bg-slate-800 text-center text-base font-bold">♣️</button>
+              <button type="button" onclick="setSuit('NO_TRUMP')" id="suit-NO_TRUMP" class="suit-btn py-2 rounded-xl border border-slate-700 bg-slate-800 text-center text-xs font-extrabold text-amber-300">SA</button>
+              <button type="button" onclick="setSuit('ALL_TRUMP')" id="suit-ALL_TRUMP" class="suit-btn py-2 rounded-xl border border-slate-700 bg-slate-800 text-center text-xs font-extrabold text-purple-300">TA</button>
+            </div>
+          </div>
+
+          <!-- 3. Contrat Coinche -->
+          <div class="space-y-1.5">
+            <label class="text-xs text-slate-400 font-medium">3. Contrat Annoncé</label>
+            <div class="grid grid-cols-5 gap-1.5" id="contractGrid"></div>
+          </div>
+
+          <!-- 4. Statut Coinche -->
+          <div class="grid grid-cols-3 gap-2">
+            <button type="button" onclick="setCoinche(1)" id="mult-1" class="py-2 rounded-xl border text-xs font-bold bg-blue-600/30 border-blue-500 text-white">Normal (x1)</button>
+            <button type="button" onclick="setCoinche(2)" id="mult-2" class="py-2 rounded-xl border text-xs font-bold bg-slate-800 border-slate-700 text-slate-300">Coinché (x2)</button>
+            <button type="button" onclick="setCoinche(4)" id="mult-4" class="py-2 rounded-xl border text-xs font-bold bg-slate-800 border-slate-700 text-slate-300">Surcoinché (x4)</button>
+          </div>
+
+          <!-- 5. Points de plis réalisés -->
+          <div class="p-3 rounded-xl bg-slate-800/80 border border-slate-700 space-y-2.5">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-blue-300 font-bold">Plis NS : <strong id="valPtsNS" class="text-sm">100</strong></span>
+              <span id="specialTrickBadge" class="hidden px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-bold">Barre 100% Remplie</span>
+              <span class="text-rose-300 font-bold">Plis EO : <strong id="valPtsEW" class="text-sm">62</strong></span>
+            </div>
+
+            <div class="w-full h-3 rounded-full bg-rose-500/40 overflow-hidden flex border border-slate-600">
+              <div id="trickVisualBarNS" class="h-full bg-gradient-to-r from-blue-600 to-blue-400 transition-all duration-200" style="width: 61.7%"></div>
+            </div>
+
+            <input id="sliderPtsNS" type="range" min="0" max="162" step="1" value="100" oninput="onSliderChange(this.value)" class="w-full cursor-pointer" />
+
+            <div class="flex flex-wrap justify-between gap-1 pt-0.5">
+              <button type="button" onclick="setSpecialOutcome('DEDANS')" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-[11px] text-slate-200">Chute / Dedans</button>
+              <button type="button" onclick="onSliderChange(82)" class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-[11px] text-slate-200">82 - 80</button>
+              <button type="button" onclick="setSpecialOutcome('CAPOT')" class="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[11px] text-amber-300 font-semibold">Capot (252)</button>
+              <button type="button" onclick="setSpecialOutcome('CAPOT_BELOTE')" class="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-[11px] text-amber-300 font-semibold">Capot B</button>
+              <button type="button" onclick="setSpecialOutcome('GENERALE')" class="px-2 py-1 rounded bg-purple-500/20 hover:bg-purple-500/30 border border-purple-500/40 text-[11px] text-purple-300 font-semibold">Générale</button>
+            </div>
+          </div>
+
+          <!-- 6. Belote-Rebelote (+20 pts) en BOUTONS TACTILES -->
+          <div class="space-y-1.5">
+            <label class="text-xs text-slate-400 font-medium">6. Belote-Rebelote (+20 pts)</label>
+            <div class="grid grid-cols-3 gap-2">
+              <button type="button" onclick="setBeloteBy('NONE')" id="beloteBtn-NONE" class="py-2.5 px-2 rounded-xl border text-xs font-bold transition bg-blue-600/30 border-blue-500 text-white">
+                Aucune
+              </button>
+              <button type="button" onclick="setBeloteBy('NS')" id="beloteBtn-NS" class="py-2.5 px-2 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300">
+                👑 Nord-Sud (+20)
+              </button>
+              <button type="button" onclick="setBeloteBy('EW')" id="beloteBtn-EW" class="py-2.5 px-2 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300">
+                👑 Est-Ouest (+20)
+              </button>
+            </div>
+          </div>
+
+          <!-- 7. Annonces (Bouton ouvrant la petite fenêtre modale par-dessus) -->
+          <div class="space-y-1.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs text-slate-400 font-medium">7. Annonces (Tierce, 50, 100, Carrés)</label>
+              <button type="button" onclick="clearAnnouncements()" id="btnClearAnnouncements" class="hidden text-[11px] text-rose-400 hover:underline">
+                Réinitialiser
+              </button>
+            </div>
+            <button type="button" onclick="openAnnouncementModal()" class="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold text-white flex items-center justify-between transition cursor-pointer">
+              <span>📢 Choisir les Annonces (Fenêtre Pop-up)</span>
+              <span id="announcementSummaryBadge" class="px-2 py-0.5 rounded-lg bg-slate-700 text-slate-300 text-[11px]">Aucune annonce</span>
+            </button>
+          </div>
+
+          <!-- Aperçu en direct -->
+          <div class="p-3 rounded-xl bg-blue-950/40 border border-blue-500/30 flex items-center justify-between">
+            <div>
+              <div id="previewStatus" class="text-xs font-bold text-emerald-400">✓ Contrat Réussi</div>
+              <div id="previewDetail" class="text-[11px] text-slate-400">Calcul temps réel ScoreEngine</div>
+            </div>
+            <div class="text-right text-xs">
+              <div>NS : <strong id="previewNS" class="text-blue-300 font-bold">+200</strong></div>
+              <div>EO : <strong id="previewEW" class="text-rose-300 font-bold">+60</strong></div>
+            </div>
+          </div>
+
+          <button id="btnSubmitRound" type="button" onclick="submitRoundForm()" class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition cursor-pointer">
+            Enregistrer la Donne (Donneur suivant auto)
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- FENÊTRE MODALE SUPERPOSÉE POUR RENOMMER UNE PARTIE                    -->
+  <!-- ===================================================================== -->
+  <div id="renameGameModalOverlay" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 class="text-base font-black text-white">🏷️ Modifier le nom de la partie</h3>
+          <p class="text-xs text-slate-400">Autorisé même sur une ancienne partie terminée et synchronisée.</p>
+        </div>
+        <button type="button" onclick="closeRenameModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm">✕</button>
+      </div>
+
+      <div class="space-y-2">
+        <label for="renameGameInput" class="text-xs text-slate-300 font-semibold block">Nouveau nom</label>
+        <input
+          id="renameGameInput"
+          type="text"
+          placeholder="Ex : Soirée Coinche Paris, Revanche Bateau..."
+          class="w-full bg-slate-800 border border-slate-600 focus:border-blue-500 rounded-xl px-3.5 py-2.5 text-sm text-white outline-none"
+        />
+      </div>
+
+      <div class="flex items-center justify-end gap-2 pt-1">
+        <button type="button" onclick="closeRenameModal()" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300">
+          Annuler
+        </button>
+        <button type="button" onclick="confirmRenameGame()" class="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow">
+          💾 Enregistrer le nom
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- FENÊTRE MODALE SUPERPOSÉE POUR LES ANNONCES (TIERCE, 50, 100, CARRÉS) -->
+  <!-- ===================================================================== -->
+  <div id="announcementModalOverlay" class="fixed inset-0 z-50 hidden bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-5 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 class="text-base font-black text-white">📢 Déclarer des Annonces</h3>
+          <p class="text-xs text-slate-400">Touchez les boutons pour ajouter des annonces à Nord-Sud ou Est-Ouest</p>
+        </div>
+        <button type="button" onclick="closeAnnouncementModal()" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-sm">✕</button>
+      </div>
+
+      <div class="space-y-1.5">
+        <label class="text-xs text-slate-400 font-semibold">Équipe déclarante</label>
+        <div class="grid grid-cols-2 gap-2">
+          <button type="button" onclick="setAnnouncementTeam('NS')" id="annTeamBtn-NS" class="py-2 rounded-xl border text-xs font-bold bg-blue-600/30 border-blue-500 text-white">
+            Équipe Nord-Sud
+          </button>
+          <button type="button" onclick="setAnnouncementTeam('EW')" id="annTeamBtn-EW" class="py-2 rounded-xl border text-xs font-bold bg-slate-800 border-slate-700 text-slate-300">
+            Équipe Est-Ouest
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2">
+        <button type="button" onclick="addAnnouncementPoints(20, 'Tierce')" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-left transition">
+          <div class="text-xs font-bold text-white">Tierce</div>
+          <div class="text-[11px] text-blue-300 font-semibold">+20 pts (3 cartes)</div>
+        </button>
+        <button type="button" onclick="addAnnouncementPoints(50, 'Cinquante')" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-left transition">
+          <div class="text-xs font-bold text-white">Cinquante</div>
+          <div class="text-[11px] text-blue-300 font-semibold">+50 pts (4 cartes)</div>
+        </button>
+        <button type="button" onclick="addAnnouncementPoints(100, 'Cent')" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-left transition">
+          <div class="text-xs font-bold text-white">Cent</div>
+          <div class="text-[11px] text-blue-300 font-semibold">+100 pts (5 cartes)</div>
+        </button>
+        <button type="button" onclick="addAnnouncementPoints(100, 'Carré (10/D/R/A)')" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-left transition">
+          <div class="text-xs font-bold text-white">Carré (10, D, R, A)</div>
+          <div class="text-[11px] text-amber-300 font-semibold">+100 pts</div>
+        </button>
+        <button type="button" onclick="addAnnouncementPoints(150, 'Carré de 9')" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-left transition">
+          <div class="text-xs font-bold text-white">Carré de 9</div>
+          <div class="text-[11px] text-amber-300 font-semibold">+150 pts</div>
+        </button>
+        <button type="button" onclick="addAnnouncementPoints(200, 'Carré de Valets')" class="p-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-left transition">
+          <div class="text-xs font-bold text-white">Carré de Valets</div>
+          <div class="text-[11px] text-purple-300 font-semibold">+200 pts</div>
+        </button>
+      </div>
+
+      <div class="p-3 rounded-xl bg-slate-800/90 border border-slate-700 flex items-center justify-between text-xs">
+        <div>
+          <span class="text-slate-400">Total déclaré :</span>
+          <strong id="modalAnnouncementsDetail" class="text-white ml-1">Aucune annonce</strong>
+        </div>
+        <button type="button" onclick="clearAnnouncements()" class="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 font-semibold hover:bg-rose-500/30">
+          Effacer
+        </button>
+      </div>
+
+      <button type="button" onclick="closeAnnouncementModal()" class="w-full py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs">
+        Valider et Fermer
+      </button>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = 'belote_coinche_pwa_state_v1';
+
+    function generateUuid() {
+      if (window.crypto && window.crypto.randomUUID) return window.crypto.randomUUID();
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = (Math.random() * 16) | 0;
+        const v = c === 'x' ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      });
+    }
+
+    const SUIT_ICONS = {
+      SPADES: '♠️ Pique',
+      HEARTS: '♥️ Cœur',
+      DIAMONDS: '♦️ Carreau',
+      CLUBS: '♣️ Trèfle',
+      NO_TRUMP: 'SA Sans-Atout',
+      ALL_TRUMP: 'TA Tout-Atout'
+    };
+
+    const SEAT_ORDER = ['NORTH', 'EAST', 'SOUTH', 'WEST'];
+    const SEAT_LABELS = { NORTH: 'Nord', EAST: 'Est', SOUTH: 'Sud', WEST: 'Ouest' };
+
+    function getNextSeat(seat) {
+      const idx = SEAT_ORDER.indexOf(seat);
+      return SEAT_ORDER[(idx + 1) % 4];
+    }
+
+    // État persistant (chargé depuis localStorage)
+    let currentUser = {
+      id: generateUuid(),
+      username: 'Alex',
+      email: '',
+      friendCode: 'BLT-' + Math.random().toString(36).substring(2, 7).toUpperCase(),
+      accessToken: null
+    };
+
+    let supabaseConfig = {
+      url: '',
+      anonKey: ''
+    };
+
+    let cachedFriends = [
+      { username: 'Thomas', code: 'BLT-8821' },
+      { username: 'Matéo', code: 'BLT-9981' },
+      { username: 'Inès', code: 'BLT-1044' }
+    ];
+
+    let gamesDatabase = [];
+    let simulatedOffline = false;
+    let activeGameId = null;
+    let renamingGameId = null;
+    let editingRoundIndex = null;
+
+    let newGameConfig = {
+      mode: 'COINCHE',
+      targetScore: 2000,
+      initialDealerSeat: 'NORTH',
+      seats: {
+        NORTH: { linkType: 'ME', name: 'Alex', badge: '✓ Mon Compte' },
+        SOUTH: { linkType: 'FRIEND', name: 'Thomas', badge: '👥 Ami (BLT-8821)' },
+        EAST:  { linkType: 'GUEST', name: 'Inès', badge: '👤 Invité (CLAIM-4821)' },
+        WEST:  { linkType: 'FRIEND', name: 'Matéo', badge: '👥 Ami (BLT-9981)' }
+      }
+    };
+
+    let state = {
+      dealerSeat: 'NORTH',
+      taker: 'NS',
+      suit: 'SPADES',
+      contractType: 'NUMBER',
+      contractVal: 100,
+      mult: 1,
+      ptsNS: 100,
+      ptsEW: 62,
+      beloteBy: 'NONE',
+      annTeam: 'NS',
+      annNS: 0,
+      annEW: 0,
+      annLabels: []
+    };
+
+    // --- PERSISTANCE LOCALSTORAGE & URL PARAMS ---
+    function loadPersistedState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.currentUser) currentUser = parsed.currentUser;
+          if (parsed.supabaseConfig) supabaseConfig = parsed.supabaseConfig;
+          if (Array.isArray(parsed.cachedFriends) && parsed.cachedFriends.length > 0) {
+            cachedFriends = parsed.cachedFriends;
+          }
+          if (Array.isArray(parsed.gamesDatabase)) {
+            gamesDatabase = parsed.gamesDatabase;
+          }
+        }
+      } catch (_e) {}
+
+      // Vérifie si le lien contient ?sb_url=...&sb_key=... (lien magique partagé entre potes)
+      const params = new URLSearchParams(window.location.search);
+      const urlParam = params.get('sb_url');
+      const keyParam = params.get('sb_key');
+      if (urlParam && keyParam) {
+        supabaseConfig.url = urlParam;
+        supabaseConfig.anonKey = keyParam;
+        window.history.replaceState({}, document.title, window.location.pathname);
+        savePersistedState();
+      }
+
+      newGameConfig.seats.NORTH.name = currentUser.username;
+      newGameConfig.seats.NORTH.badge = `✓ ${currentUser.friendCode}`;
+    }
+
+    function savePersistedState() {
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({
+            currentUser,
+            supabaseConfig,
+            cachedFriends,
+            gamesDatabase
+          })
+        );
+      } catch (_e) {}
+    }
+
+    function isEffectivelyOnline() {
+      return navigator.onLine && !simulatedOffline;
+    }
+
+    function getDirtyGamesCount() {
+      return gamesDatabase.filter(g => g.syncStatus !== 'SYNCED').length;
+    }
+
+    function getActiveGame() {
+      return gamesDatabase.find(g => g.id === activeGameId) || gamesDatabase[0];
+    }
+
+    function isGameScoreLocked(game) {
+      return game && game.status === 'COMPLETED' && game.syncStatus === 'SYNCED';
+    }
+
+    function getSeatPlayerName(game, seat) {
+      return (game && game.players && game.players[seat]) || SEAT_LABELS[seat];
+    }
+
+    // --- RENDU DES 4 PLACES & LIAISON DES JOUEURS ---
+    function renderSeatsConfigGrid() {
+      const container = document.getElementById('seatsConfigGrid');
+      if (!container) return;
+
+      const seatsMeta = [
+        { seat: 'NORTH', teamLabel: 'Équipe Nord-Sud • Place Nord (Vous)', color: 'blue' },
+        { seat: 'SOUTH', teamLabel: 'Équipe Nord-Sud • Place Sud (Partenaire)', color: 'blue' },
+        { seat: 'EAST',  teamLabel: 'Équipe Est-Ouest • Place Est (Adversaire 1)', color: 'rose' },
+        { seat: 'WEST',  teamLabel: 'Équipe Est-Ouest • Place Ouest (Adversaire 2)', color: 'rose' }
+      ];
+
+      container.innerHTML = seatsMeta.map(m => {
+        const cfg = newGameConfig.seats[m.seat];
+        const borderCls = m.color === 'blue' ? 'border-blue-500/30 bg-blue-950/25' : 'border-rose-500/30 bg-rose-950/25';
+
+        if (m.seat === 'NORTH') {
+          return `
+            <div class="p-3 rounded-xl border ${borderCls} space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-[11px] font-bold text-blue-300">${m.teamLabel}</span>
+                <span class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold">${cfg.badge}</span>
+              </div>
+              <div class="text-sm font-black text-white">${cfg.name}</div>
+              <div class="text-[10px] text-slate-400">Modifiable dans l'onglet 4 (Comptes & QR).</div>
+            </div>
+          `;
+        }
+
+        const friendButtons = cfg.linkType === 'FRIEND'
+          ? `<div class="flex flex-wrap gap-1 pt-1">
+              ${cachedFriends.map(f => `
+                <button type="button" onclick="pickCachedFriend('${m.seat}', '${f.username}', '${f.code}')"
+                  class="px-2 py-1 rounded-lg text-[10px] font-bold border transition ${
+                    cfg.name === f.username ? 'bg-emerald-600 border-emerald-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'
+                  }">
+                  ${f.username}
+                </button>
+              `).join('')}
+            </div>`
+          : '';
+
+        const qrInfo = cfg.linkType === 'QR'
+          ? `<div class="p-2 rounded-lg bg-blue-950/50 border border-blue-500/40 text-[10px] text-blue-200 flex items-center justify-between">
+              <span>📷 Lié par Code/QR : <strong>${cfg.name}</strong></span>
+              <button type="button" onclick="simulateQrScan('${m.seat}')" class="px-2 py-0.5 rounded bg-blue-600 text-white font-bold">Changer</button>
+            </div>`
+          : '';
+
+        const guestInput = cfg.linkType === 'GUEST'
+          ? `<input type="text" value="${cfg.name}" oninput="updateGuestSeatName('${m.seat}', this.value)"
+              placeholder="Prénom de l'invité..."
+              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white" />`
+          : '';
+
+        return `
+          <div class="p-3 rounded-xl border ${borderCls} space-y-2">
+            <div class="flex items-center justify-between gap-1">
+              <span class="text-[11px] font-bold text-slate-200">${m.teamLabel}</span>
+              <span class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-amber-300 font-semibold">${cfg.badge}</span>
+            </div>
+
+            <div class="grid grid-cols-3 gap-1">
+              <button type="button" onclick="setSeatLinkType('${m.seat}', 'FRIEND')"
+                class="py-1.5 rounded-lg border text-[10px] font-bold transition ${
+                  cfg.linkType === 'FRIEND' ? 'bg-emerald-600/30 border-emerald-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'
+                }">
+                👥 Ami
+              </button>
+              <button type="button" onclick="setSeatLinkType('${m.seat}', 'QR')"
+                class="py-1.5 rounded-lg border text-[10px] font-bold transition ${
+                  cfg.linkType === 'QR' ? 'bg-blue-600/30 border-blue-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'
+                }">
+                📷 Code/QR
+              </button>
+              <button type="button" onclick="setSeatLinkType('${m.seat}', 'GUEST')"
+                class="py-1.5 rounded-lg border text-[10px] font-bold transition ${
+                  cfg.linkType === 'GUEST' ? 'bg-amber-600/30 border-amber-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'
+                }">
+                👤 Invité
+              </button>
+            </div>
+
+            ${friendButtons}
+            ${qrInfo}
+            ${guestInput}
+          </div>
+        `;
+      }).join('');
+    }
+
+    function setSeatLinkType(seat, linkType) {
+      const cfg = newGameConfig.seats[seat];
+      cfg.linkType = linkType;
+      if (linkType === 'FRIEND') {
+        const f = cachedFriends[0] || { username: 'Ami', code: 'BLT-0001' };
+        cfg.name = f.username;
+        cfg.badge = `👥 Ami (${f.code})`;
+      } else if (linkType === 'QR') {
+        simulateQrScan(seat);
+        return;
+      } else {
+        cfg.name = seat === 'EAST' ? 'Inès' : 'Invité';
+        const rand = Math.floor(1000 + Math.random() * 9000);
+        cfg.badge = `👤 Invité (CLAIM-${rand})`;
+      }
+      renderSeatsConfigGrid();
+      refreshInitialDealerButtons();
+    }
+
+    function pickCachedFriend(seat, username, code) {
+      newGameConfig.seats[seat] = {
+        linkType: 'FRIEND',
+        name: username,
+        badge: `👥 Ami (${code})`
+      };
+      renderSeatsConfigGrid();
+      refreshInitialDealerButtons();
+    }
+
+    function simulateQrScan(seat) {
+      const scanned = cachedFriends[Math.floor(Math.random() * cachedFriends.length)] || { username: 'Ami_QR', code: 'BLT-9999' };
+      newGameConfig.seats[seat] = {
+        linkType: 'QR',
+        name: scanned.username,
+        badge: `📷 QR (${scanned.code})`
+      };
+      renderSeatsConfigGrid();
+      refreshInitialDealerButtons();
+    }
+
+    function updateGuestSeatName(seat, val) {
+      newGameConfig.seats[seat].name = val.trim() || 'Invité';
+      refreshInitialDealerButtons();
+    }
+
+    function getDraftPlayersMap() {
+      return {
+        NORTH: newGameConfig.seats.NORTH.name,
+        SOUTH: newGameConfig.seats.SOUTH.name,
+        EAST: newGameConfig.seats.EAST.name,
+        WEST: newGameConfig.seats.WEST.name
+      };
+    }
+
+    function computeDefaultGameTitle(mode, players, gameNumber) {
+      const modeLabel = mode === 'BELOTE_CLASSIC' ? 'Belote' : 'Coinche';
+      const ns = `${players.NORTH || 'Nord'}/${players.SOUTH || 'Sud'}`;
+      const ew = `${players.EAST || 'Est'}/${players.WEST || 'Ouest'}`;
+      return `Soirée ${modeLabel} #${gameNumber} (${ns} vs ${ew})`;
+    }
+
+    function updateDefaultTitlePreview() {
+      const players = getDraftPlayersMap();
+      const def = computeDefaultGameTitle(newGameConfig.mode, players, gamesDatabase.length + 1);
+      const previewEl = document.getElementById('defaultTitlePreview');
+      if (previewEl) previewEl.textContent = def;
+      return def;
+    }
+
+    function fillSuggestedTitle() {
+      const def = updateDefaultTitlePreview();
+      document.getElementById('newGameTitle').value = def;
+    }
+
+    // --- MODALE RENOMMER PARTIE ---
+    function openRenameModal(gameId) {
+      const target = gamesDatabase.find(g => g.id === gameId);
+      if (!target) return;
+      renamingGameId = gameId;
+      const input = document.getElementById('renameGameInput');
+      input.value = target.title;
+      document.getElementById('renameGameModalOverlay').classList.remove('hidden');
+      setTimeout(() => input.focus(), 50);
+    }
+
+    function closeRenameModal() {
+      renamingGameId = null;
+      document.getElementById('renameGameModalOverlay').classList.add('hidden');
+    }
+
+    function confirmRenameGame() {
+      if (!renamingGameId) return;
+      const target = gamesDatabase.find(g => g.id === renamingGameId);
+      if (!target) return;
+
+      const raw = document.getElementById('renameGameInput').value.trim();
+      const idx = gamesDatabase.length - gamesDatabase.indexOf(target);
+      target.title = raw.length > 0
+        ? raw
+        : computeDefaultGameTitle(target.mode, target.players, idx);
+
+      savePersistedState();
+      closeRenameModal();
+      renderActiveGame();
+      renderHistoryLists();
+    }
+
+    // --- BOUTONS TACTILES CRÉATION PARTIE ---
+    function selectNewGameMode(mode) {
+      newGameConfig.mode = mode;
+      ['COINCHE', 'BELOTE_CLASSIC'].forEach(m => {
+        const btn = document.getElementById('modeBtn-' + m);
+        btn.className = (m === mode)
+          ? 'py-2.5 px-2.5 rounded-xl border text-left transition bg-blue-600/25 border-blue-500 text-white'
+          : 'py-2.5 px-2.5 rounded-xl border text-left transition bg-slate-800 border-slate-700 text-slate-300';
+      });
+      updateDefaultTitlePreview();
+    }
+
+    function selectNewGameTarget(score) {
+      newGameConfig.targetScore = score;
+      [500, 1000, 1500, 2000].forEach(s => {
+        const btn = document.getElementById('targetBtn-' + s);
+        btn.className = (s === score)
+          ? 'py-2.5 rounded-xl border text-xs font-bold transition bg-blue-600 border-blue-400 text-white shadow'
+          : 'py-2.5 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300';
+      });
+    }
+
+    function refreshInitialDealerButtons() {
+      const p = getDraftPlayersMap();
+      const container = document.getElementById('initialDealerContainer');
+      if (container) {
+        container.innerHTML = SEAT_ORDER.map(seat => {
+          const active = newGameConfig.initialDealerSeat === seat;
+          return `<button type="button" onclick="selectInitialDealer('${seat}')"
+            class="py-2 px-2 rounded-xl border text-xs font-bold transition ${
+              active ? 'bg-amber-500/25 border-amber-400 text-white' : 'bg-slate-800 border-slate-700 text-slate-300'
+            }">
+            <div>${p[seat]}</div>
+            <div class="text-[10px] text-slate-400">${SEAT_LABELS[seat]}</div>
+          </button>`;
+        }).join('');
+      }
+      updateDefaultTitlePreview();
+    }
+
+    function selectInitialDealer(seat) {
+      newGameConfig.initialDealerSeat = seat;
+      refreshInitialDealerButtons();
+    }
+
+    function switchHomeTab(tab) {
+      document.getElementById('view-scoresheet').classList.add('hidden');
+      document.getElementById('scoreSheetNav').classList.add('hidden');
+      document.getElementById('homeTabsNav').classList.remove('hidden');
+
+      ['new_game', 'history', 'stats', 'accounts'].forEach(t => {
+        document.getElementById('view-home-' + t).classList.toggle('hidden', t !== tab);
+        const btn = document.getElementById('tab-' + t);
+        if (btn) btn.classList.toggle('active', t === tab);
+      });
+
+      renderHistoryLists();
+      computeAndRenderDynamicStats();
+      renderAccountTabUI();
+      updateDefaultTitlePreview();
+    }
+
+    function openScoreSheet(gameId) {
+      activeGameId = gameId;
+      editingRoundIndex = null;
+      const g = getActiveGame();
+      if (!g) return;
+      state.dealerSeat = g.currentDealerSeat || 'NORTH';
+      cancelEditRound();
+
+      ['new_game', 'history', 'stats', 'accounts'].forEach(t => {
+        document.getElementById('view-home-' + t).classList.add('hidden');
+      });
+      document.getElementById('homeTabsNav').classList.add('hidden');
+      document.getElementById('scoreSheetNav').classList.remove('hidden');
+      document.getElementById('scoreSheetNav').classList.add('flex');
+      document.getElementById('view-scoresheet').classList.remove('hidden');
+
+      renderActiveGame();
+      updatePreview();
+    }
+
+    function closeScoreSheet() {
+      editingRoundIndex = null;
+      switchHomeTab('new_game');
+    }
+
+    function createAndOpenScoreSheet() {
+      const players = getDraftPlayersMap();
+      const customTitle = document.getElementById('newGameTitle').value.trim();
+      const finalTitle = customTitle.length > 0
+        ? customTitle
+        : computeDefaultGameTitle(newGameConfig.mode, players, gamesDatabase.length + 1);
+
+      const newId = generateUuid();
+      const nowStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+      gamesDatabase.unshift({
+        id: newId,
+        title: finalTitle,
+        date: nowStr,
+        startedAtIso: new Date().toISOString(),
+        mode: newGameConfig.mode,
+        targetScore: newGameConfig.targetScore,
+        status: 'IN_PROGRESS',
+        syncStatus: 'DIRTY',
+        currentDealerSeat: newGameConfig.initialDealerSeat,
+        players,
+        rounds: []
+      });
+
+      document.getElementById('newGameTitle').value = '';
+      savePersistedState();
+      updateNetworkUI();
+      openScoreSheet(newId);
+
+      if (isEffectivelyOnline() && supabaseConfig.url && supabaseConfig.anonKey) {
+        syncWithSupabaseNow();
+      }
+    }
+
+    // --- GESTION DU DONNEUR ---
+    function renderDealerButtons() {
+      const g = getActiveGame();
+      if (!g) return;
+      const currentName = getSeatPlayerName(g, state.dealerSeat);
+      document.getElementById('headerDealerName').textContent = `${currentName} (${SEAT_LABELS[state.dealerSeat]})`;
+
+      const container = document.getElementById('roundDealerButtons');
+      container.innerHTML = SEAT_ORDER.map(seat => {
+        const active = state.dealerSeat === seat;
+        const pName = getSeatPlayerName(g, seat);
+        return `<button type="button" onclick="setRoundDealer('${seat}')"
+          class="py-1.5 px-2 rounded-lg border text-[11px] font-bold transition ${
+            active
+              ? 'bg-amber-500/25 border-amber-400 text-white shadow'
+              : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+          }">
+          <div>${pName}</div>
+          <div class="text-[9px] opacity-75">${SEAT_LABELS[seat]}</div>
+        </button>`;
+      }).join('');
+    }
+
+    function setRoundDealer(seat) {
+      const g = getActiveGame();
+      if (!g || isGameScoreLocked(g)) return;
+      state.dealerSeat = seat;
+      if (editingRoundIndex === null) {
+        g.currentDealerSeat = seat;
+        savePersistedState();
+      }
+      renderDealerButtons();
+    }
+
+    function skipDealerTurn() {
+      const g = getActiveGame();
+      if (!g || isGameScoreLocked(g)) return;
+      const next = getNextSeat(state.dealerSeat);
+      setRoundDealer(next);
+    }
+
+    // --- GRILLE DE CONTRATS ---
+    const CONTRACT_OPTIONS = [
+      { type: 'NUMBER', val: 80, label: '80' },
+      { type: 'NUMBER', val: 90, label: '90' },
+      { type: 'NUMBER', val: 100, label: '100' },
+      { type: 'NUMBER', val: 110, label: '110' },
+      { type: 'NUMBER', val: 120, label: '120' },
+      { type: 'NUMBER', val: 130, label: '130' },
+      { type: 'NUMBER', val: 140, label: '140' },
+      { type: 'NUMBER', val: 150, label: '150' },
+      { type: 'NUMBER', val: 160, label: '160' },
+      { type: 'CAPOT', val: 250, label: 'Capot' },
+      { type: 'CAPOT_BELOTE', val: 250, label: 'Capot B' },
+      { type: 'GENERALE', val: 500, label: 'Générale' }
+    ];
+
+    function renderContractGrid() {
+      const grid = document.getElementById('contractGrid');
+      grid.innerHTML = CONTRACT_OPTIONS.map(opt => {
+        const isSelected = state.contractType === opt.type && (opt.type !== 'NUMBER' || state.contractVal === opt.val);
+        return `<button type="button" onclick="selectContract('${opt.type}', ${opt.val})"
+          class="py-1.5 px-2 rounded-lg border text-xs font-bold transition ${
+            isSelected
+              ? 'bg-blue-600 border-blue-400 text-white shadow'
+              : 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+          }">${opt.label}</button>`;
+      }).join('');
+    }
+
+    function selectContract(type, val) {
+      state.contractType = type;
+      state.contractVal = val;
+      if (type === 'CAPOT_BELOTE') {
+        setBeloteBy(state.taker);
+      }
+      if (type === 'CAPOT' || type === 'CAPOT_BELOTE' || type === 'GENERALE') {
+        if (state.taker === 'NS') {
+          state.ptsNS = 252;
+          state.ptsEW = 0;
+        } else {
+          state.ptsNS = 0;
+          state.ptsEW = 252;
+        }
+      } else if (state.ptsNS > 162 || state.ptsEW > 162) {
+        state.ptsNS = 100;
+        state.ptsEW = 62;
+      }
+      renderContractGrid();
+      updateTrickBarUI();
+      updatePreview();
+    }
+
+    function setTaker(team) {
+      state.taker = team;
+      document.getElementById('takerNS').className = team === 'NS'
+        ? 'py-2.5 px-3 rounded-xl border text-xs font-bold transition bg-blue-600/30 border-blue-500 text-white'
+        : 'py-2.5 px-3 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300';
+      document.getElementById('takerEW').className = team === 'EW'
+        ? 'py-2.5 px-3 rounded-xl border text-xs font-bold transition bg-rose-600/30 border-rose-500 text-white'
+        : 'py-2.5 px-3 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300';
+      updatePreview();
+    }
+
+    function setSuit(suit) {
+      state.suit = suit;
+      document.querySelectorAll('.suit-btn').forEach(btn => btn.classList.remove('active'));
+      document.getElementById('suit-' + suit).classList.add('active');
+      updatePreview();
+    }
+
+    function setCoinche(mult) {
+      state.mult = mult;
+      [1, 2, 4].forEach(m => {
+        const el = document.getElementById('mult-' + m);
+        el.className = m === mult
+          ? 'py-2 rounded-xl border text-xs font-bold bg-blue-600/30 border-blue-500 text-white'
+          : 'py-2 rounded-xl border text-xs font-bold bg-slate-800 border-slate-700 text-slate-300';
+      });
+      const labels = { 1: 'Normal (x1)', 2: 'Coinché (x2)', 4: 'Surcoinché (x4)' };
+      document.getElementById('coincheMultBadge').textContent = labels[mult];
+      updatePreview();
+    }
+
+    function setBeloteBy(team) {
+      state.beloteBy = team;
+      ['NONE', 'NS', 'EW'].forEach(opt => {
+        const btn = document.getElementById('beloteBtn-' + opt);
+        btn.className = (opt === team)
+          ? 'py-2.5 px-2 rounded-xl border text-xs font-bold transition bg-blue-600/30 border-blue-500 text-white'
+          : 'py-2.5 px-2 rounded-xl border text-xs font-bold transition bg-slate-800 border-slate-700 text-slate-300';
+      });
+      updatePreview();
+    }
+
+    function openAnnouncementModal() {
+      const g = getActiveGame();
+      if (isGameScoreLocked(g)) return;
+      document.getElementById('announcementModalOverlay').classList.remove('hidden');
+      updateAnnouncementSummaryUI();
+    }
+
+    function closeAnnouncementModal() {
+      document.getElementById('announcementModalOverlay').classList.add('hidden');
+      updateAnnouncementSummaryUI();
+      updatePreview();
+    }
+
+    function setAnnouncementTeam(team) {
+      state.annTeam = team;
+      ['NS', 'EW'].forEach(t => {
+        const btn = document.getElementById('annTeamBtn-' + t);
+        btn.className = (t === team)
+          ? 'py-2 rounded-xl border text-xs font-bold bg-blue-600/30 border-blue-500 text-white'
+          : 'py-2 rounded-xl border text-xs font-bold bg-slate-800 border-slate-700 text-slate-300';
+      });
+    }
+
+    function addAnnouncementPoints(points, label) {
+      if (state.annTeam === 'NS') {
+        state.annNS += points;
+        state.annLabels.push(`NS: ${label} (+${points})`);
+      } else {
+        state.annEW += points;
+        state.annLabels.push(`EO: ${label} (+${points})`);
+      }
+      updateAnnouncementSummaryUI();
+      updatePreview();
+    }
+
+    function clearAnnouncements() {
+      state.annNS = 0;
+      state.annEW = 0;
+      state.annLabels = [];
+      updateAnnouncementSummaryUI();
+      updatePreview();
+    }
+
+    function updateAnnouncementSummaryUI() {
+      const badge = document.getElementById('announcementSummaryBadge');
+      const modalDetail = document.getElementById('modalAnnouncementsDetail');
+      const btnClear = document.getElementById('btnClearAnnouncements');
+
+      if (state.annNS === 0 && state.annEW === 0) {
+        badge.textContent = 'Aucune annonce';
+        badge.className = 'px-2 py-0.5 rounded-lg bg-slate-700 text-slate-300 text-[11px]';
+        modalDetail.textContent = 'Aucune annonce';
+        btnClear.classList.add('hidden');
+      } else {
+        const parts = [];
+        if (state.annNS > 0) parts.push(`NS +${state.annNS} pts`);
+        if (state.annEW > 0) parts.push(`EO +${state.annEW} pts`);
+        const summary = parts.join(' • ');
+        badge.textContent = summary;
+        badge.className = 'px-2 py-0.5 rounded-lg bg-blue-500/30 text-blue-200 border border-blue-400/40 text-[11px] font-bold';
+        modalDetail.textContent = state.annLabels.join(', ');
+        btnClear.classList.remove('hidden');
+      }
+    }
+
+    function onSliderChange(val) {
+      const ns = parseInt(val, 10);
+      state.ptsNS = ns;
+      state.ptsEW = 162 - ns;
+      if (state.contractType !== 'NUMBER') {
+        state.contractType = 'NUMBER';
+        state.contractVal = 100;
+        renderContractGrid();
+      }
+      updateTrickBarUI();
+      updatePreview();
+    }
+
+    function setSpecialOutcome(kind) {
+      if (kind === 'DEDANS') {
+        if (state.taker === 'NS') { state.ptsNS = 60; state.ptsEW = 102; }
+        else { state.ptsNS = 102; state.ptsEW = 60; }
+        updateTrickBarUI();
+        updatePreview();
+        return;
+      }
+      if (kind === 'CAPOT') selectContract('CAPOT', 250);
+      if (kind === 'CAPOT_BELOTE') selectContract('CAPOT_BELOTE', 250);
+      if (kind === 'GENERALE') selectContract('GENERALE', 500);
+    }
+
+    function getTrickLabelsAndBar() {
+      const isSpecialFull =
+        state.ptsNS === 252 || state.ptsEW === 252 ||
+        state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE' || state.contractType === 'GENERALE';
+
+      if (isSpecialFull) {
+        const winnerIsNS = state.ptsNS >= state.ptsEW;
+        let label = 'Capot';
+        if (state.contractType === 'GENERALE') label = 'Générale';
+        else if (state.contractType === 'CAPOT_BELOTE' || state.beloteBy === (winnerIsNS ? 'NS' : 'EW')) label = 'Capot B';
+
+        return {
+          labelNS: winnerIsNS ? label : '0',
+          labelEW: !winnerIsNS ? label : '0',
+          barPercentNS: winnerIsNS ? 100 : 0,
+          isSpecialFull: true
+        };
+      }
+
+      return {
+        labelNS: String(state.ptsNS),
+        labelEW: String(state.ptsEW),
+        barPercentNS: Math.round((state.ptsNS / 162) * 100),
+        isSpecialFull: false
+      };
+    }
+
+    function updateTrickBarUI() {
+      const info = getTrickLabelsAndBar();
+      document.getElementById('valPtsNS').textContent = info.labelNS;
+      document.getElementById('valPtsEW').textContent = info.labelEW;
+      document.getElementById('trickVisualBarNS').style.width = info.barPercentNS + '%';
+      document.getElementById('sliderPtsNS').value = Math.min(162, state.ptsNS);
+
+      const badge = document.getElementById('specialTrickBadge');
+      if (info.isSpecialFull) badge.classList.remove('hidden');
+      else badge.classList.add('hidden');
+    }
+
+    function computeRoundScore() {
+      const takerIsNS = state.taker === 'NS';
+      const takerTrickPts = takerIsNS ? state.ptsNS : state.ptsEW;
+      const defTrickPts = takerIsNS ? state.ptsEW : state.ptsNS;
+
+      const beloteNS = state.beloteBy === 'NS' ? 20 : 0;
+      const beloteEW = state.beloteBy === 'EW' ? 20 : 0;
+      const takerBelote = takerIsNS ? beloteNS : beloteEW;
+
+      const takerAnn = takerIsNS ? state.annNS : state.annEW;
+      const defAnn = takerIsNS ? state.annEW : state.annNS;
+      const totalAnn = state.annNS + state.annEW;
+
+      let contractSuccess = false;
+      if (state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE' || state.contractType === 'GENERALE') {
+        contractSuccess = takerTrickPts === 252;
+      } else {
+        const comparisonPts = takerTrickPts + takerBelote + takerAnn;
+        contractSuccess = comparisonPts >= state.contractVal && takerTrickPts > 0;
+      }
+
+      let finalNS = 0;
+      let finalEW = 0;
+
+      if (contractSuccess) {
+        const takerRaw = (takerTrickPts + state.contractVal) * state.mult + takerAnn + takerBelote;
+        const defRaw = state.mult > 1 ? 0 : (defTrickPts + defAnn + (takerIsNS ? beloteEW : beloteNS));
+        const round10 = x => Math.round(x / 10) * 10;
+        finalNS = takerIsNS ? round10(takerRaw) : round10(defRaw);
+        finalEW = takerIsNS ? round10(defRaw) : round10(takerRaw);
+      } else {
+        const baseFall = (state.contractType === 'CAPOT' || state.contractType === 'CAPOT_BELOTE') ? 250 : 160;
+        const defRaw = (baseFall + state.contractVal) * state.mult + totalAnn;
+        const round10 = x => Math.round(x / 10) * 10;
+        finalNS = takerIsNS ? beloteNS : round10(defRaw) + beloteNS;
+        finalEW = takerIsNS ? round10(defRaw) + beloteEW : beloteEW;
+      }
+
+      const trickInfo = getTrickLabelsAndBar();
+      return {
+        contractSuccess,
+        finalNS,
+        finalEW,
+        trickLabelNS: trickInfo.labelNS,
+        trickLabelEW: trickInfo.labelEW
+      };
+    }
+
+    function updatePreview() {
+      const res = computeRoundScore();
+      const statusEl = document.getElementById('previewStatus');
+      if (res.contractSuccess) {
+        statusEl.textContent = '✓ Contrat Réussi (' + state.taker + ')';
+        statusEl.className = 'text-xs font-bold text-emerald-400';
+      } else {
+        statusEl.textContent = '✗ Contrat Chuté — Défense marque tout';
+        statusEl.className = 'text-xs font-bold text-rose-400';
+      }
+      document.getElementById('previewDetail').textContent =
+        `Plis affichés : ${res.trickLabelNS} / ${res.trickLabelEW}`;
+      document.getElementById('previewNS').textContent = '+' + res.finalNS;
+      document.getElementById('previewEW').textContent = '+' + res.finalEW;
+    }
+
+    function startEditRound(index) {
+      const g = getActiveGame();
+      if (!g || isGameScoreLocked(g)) return;
+      const r = g.rounds[index];
+      if (!r) return;
+
+      editingRoundIndex = index;
+      state.dealerSeat = r.dealerSeat || 'NORTH';
+      state.taker = r.taker;
+      state.suit = r.suit;
+      state.contractType = r.contractType;
+      state.contractVal = r.contractVal;
+      state.mult = r.mult;
+      state.ptsNS = r.ptsNS;
+      state.ptsEW = r.ptsEW;
+      state.beloteBy = r.beloteBy || 'NONE';
+      state.annNS = r.annNS || 0;
+      state.annEW = r.annEW || 0;
+      state.annLabels = [];
+      if (state.annNS > 0) state.annLabels.push(`NS (+${state.annNS})`);
+      if (state.annEW > 0) state.annLabels.push(`EO (+${state.annEW})`);
+
+      setTaker(state.taker);
+      setSuit(state.suit);
+      setCoinche(state.mult);
+      setBeloteBy(state.beloteBy);
+      renderDealerButtons();
+      renderContractGrid();
+      updateTrickBarUI();
+      updateAnnouncementSummaryUI();
+      updatePreview();
+
+      document.getElementById('formModeTitle').textContent = `✏️ Modifier la Donne #${r.num}`;
+      document.getElementById('formModeTitle').className = 'text-sm font-bold uppercase tracking-wider text-amber-300';
+      document.getElementById('formModeSubtitle').textContent = 'Corrigez les points, le contrat ou le donneur puis sauvegardez';
+      document.getElementById('btnSubmitRound').textContent = `Mettre à jour la Donne #${r.num}`;
+      document.getElementById('btnSubmitRound').className = 'w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-bold text-sm shadow-lg transition cursor-pointer';
+      document.getElementById('btnCancelEdit').classList.remove('hidden');
+      document.getElementById('roundFormPanel').classList.add('ring-2', 'ring-amber-500/60');
+
+      renderActiveGame();
+    }
+
+    function cancelEditRound() {
+      editingRoundIndex = null;
+      const g = getActiveGame();
+      if (g) state.dealerSeat = g.currentDealerSeat || 'NORTH';
+      renderDealerButtons();
+
+      document.getElementById('formModeTitle').textContent = '➕ Nouvelle Donne';
+      document.getElementById('formModeTitle').className = 'text-sm font-bold uppercase tracking-wider text-slate-200';
+      document.getElementById('formModeSubtitle').textContent = 'Saisie tactile rapide sans aucune liste déroulante';
+      document.getElementById('btnSubmitRound').textContent = 'Enregistrer la Donne (Donneur suivant auto)';
+      document.getElementById('btnSubmitRound').className = 'w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition cursor-pointer';
+      document.getElementById('btnCancelEdit').classList.add('hidden');
+      document.getElementById('roundFormPanel').classList.remove('ring-2', 'ring-amber-500/60');
+      renderActiveGame();
+    }
+
+    function submitRoundForm() {
+      const g = getActiveGame();
+      if (!g || isGameScoreLocked(g)) return;
+
+      const res = computeRoundScore();
+
+      const roundPayload = {
+        id: editingRoundIndex !== null && g.rounds[editingRoundIndex].id ? g.rounds[editingRoundIndex].id : generateUuid(),
+        num: editingRoundIndex !== null ? g.rounds[editingRoundIndex].num : g.rounds.length + 1,
+        dealerSeat: state.dealerSeat,
+        taker: state.taker,
+        suit: state.suit,
+        contractType: state.contractType,
+        contractVal: state.contractVal,
+        mult: state.mult,
+        ptsNS: state.ptsNS,
+        ptsEW: state.ptsEW,
+        beloteBy: state.beloteBy,
+        annNS: state.annNS,
+        annEW: state.annEW,
+        trickLabelNS: res.trickLabelNS,
+        trickLabelEW: res.trickLabelEW,
+        scoreNS: res.finalNS,
+        scoreEW: res.finalEW,
+        isSuccess: res.contractSuccess
+      };
+
+      if (editingRoundIndex !== null) {
+        g.rounds[editingRoundIndex] = roundPayload;
+        cancelEditRound();
+      } else {
+        g.rounds.push(roundPayload);
+        g.currentDealerSeat = getNextSeat(state.dealerSeat);
+        state.dealerSeat = g.currentDealerSeat;
+      }
+
+      state.beloteBy = 'NONE';
+      setBeloteBy('NONE');
+      clearAnnouncements();
+      renderDealerButtons();
+
+      const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
+      const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
+      g.status = (totNS >= g.targetScore || totEW >= g.targetScore) ? 'COMPLETED' : 'IN_PROGRESS';
+      g.syncStatus = 'DIRTY';
+
+      savePersistedState();
+      updateNetworkUI();
+      renderActiveGame();
+      renderHistoryLists();
+
+      if (isEffectivelyOnline() && supabaseConfig.url && supabaseConfig.anonKey) {
+        syncWithSupabaseNow();
+      }
+    }
+
+    function renderActiveGame() {
+      const g = getActiveGame();
+      if (!g) return;
+      const locked = isGameScoreLocked(g);
+      const tbody = document.getElementById('roundsTableBody');
+      let totNS = 0;
+      let totEW = 0;
+
+      document.getElementById('lockedScoreBanner').classList.toggle('hidden', !locked);
+      document.getElementById('activeGameTitleText').textContent = g.title;
+      document.getElementById('activeGameDateText').textContent = g.date;
+      document.getElementById('activeGameModeBadge').textContent =
+        g.mode === 'COINCHE' ? 'Mode : Coinche' : 'Mode : Belote Classique';
+      document.getElementById('activeGameStatusBadge').textContent = `Objectif : ${g.targetScore} pts`;
+      document.getElementById('nsPlayersLabel').textContent = `${g.players.NORTH} & ${g.players.SOUTH}`;
+      document.getElementById('ewPlayersLabel').textContent = `${g.players.EAST} & ${g.players.WEST}`;
+      document.getElementById('targetNSLabel').textContent = `/ ${g.targetScore} pts`;
+      document.getElementById('targetEWLabel').textContent = `/ ${g.targetScore} pts`;
+      document.getElementById('roundCountLabel').textContent = `${g.rounds.length} donne(s)`;
+
+      const btnSubmit = document.getElementById('btnSubmitRound');
+      if (locked) {
+        btnSubmit.textContent = '🔒 Partie terminée & synchronisée (Scores verrouillés)';
+        btnSubmit.className = 'w-full py-3 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 font-bold text-xs cursor-not-allowed';
+      } else if (editingRoundIndex === null) {
+        btnSubmit.textContent = 'Enregistrer la Donne (Donneur suivant auto)';
+        btnSubmit.className = 'w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-lg shadow-blue-600/30 transition cursor-pointer';
+      }
+
+      renderDealerButtons();
+
+      tbody.innerHTML = g.rounds.map((r, idx) => {
+        totNS += r.scoreNS;
+        totEW += r.scoreEW;
+        const multTxt = r.mult === 2 ? ' (Coinché)' : r.mult === 4 ? ' (Surcoinché)' : '';
+        const contractTitle =
+          r.contractType === 'CAPOT' ? 'Capot' :
+          r.contractType === 'CAPOT_BELOTE' ? 'Capot Beloté' :
+          r.contractType === 'GENERALE' ? 'Générale' : r.contractVal;
+
+        const isSpecialTrick = r.trickLabelNS === 'Capot' || r.trickLabelNS === 'Capot B' || r.trickLabelNS === 'Générale' ||
+                               r.trickLabelEW === 'Capot' || r.trickLabelEW === 'Capot B' || r.trickLabelEW === 'Générale';
+        const isEditingThis = editingRoundIndex === idx;
+        const dealerName = getSeatPlayerName(g, r.dealerSeat || 'NORTH');
+
+        const actionCell = locked
+          ? `<span class="px-2 py-1 rounded-lg bg-slate-800 text-slate-400 text-[10px] font-semibold">🔒 Verrouillée</span>`
+          : `<button onclick="startEditRound(${idx})" class="px-2.5 py-1 rounded-lg text-[11px] font-bold ${
+              isEditingThis ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30'
+            } transition cursor-pointer">
+              ✏️ Modifier
+            </button>`;
+
+        return `
+          <tr class="hover:bg-slate-800/40 transition ${isEditingThis ? 'bg-amber-500/10' : ''}">
+            <td class="py-2.5 px-3 font-mono text-slate-400">
+              <div class="font-bold text-white">#${r.num}</div>
+              <div class="text-[10px] text-amber-300">🎴 ${dealerName}</div>
+            </td>
+            <td class="py-2.5 px-3">
+              <span class="font-bold ${r.taker === 'NS' ? 'text-blue-300' : 'text-rose-300'}">${r.taker}</span>
+              <span class="text-slate-200 ml-1">${contractTitle} ${SUIT_ICONS[r.suit]}${multTxt}</span>
+              <span class="ml-1 text-[10px] px-1.5 py-0.5 rounded ${r.isSuccess ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'}">
+                ${r.isSuccess ? 'Réussi' : 'Chuté'}
+              </span>
+            </td>
+            <td class="py-2.5 px-3 font-mono ${isSpecialTrick ? 'text-amber-300 font-bold' : 'text-slate-300'}">
+              ${r.trickLabelNS} - ${r.trickLabelEW}
+            </td>
+            <td class="py-2.5 px-3 text-right font-bold text-blue-200">+${r.scoreNS} <span class="text-[10px] text-slate-500 font-normal">(${totNS})</span></td>
+            <td class="py-2.5 px-3 text-right font-bold text-rose-200">+${r.scoreEW} <span class="text-[10px] text-slate-500 font-normal">(${totEW})</span></td>
+            <td class="py-2.5 px-3 text-center">${actionCell}</td>
+          </tr>
+        `;
+      }).join('');
+
+      document.getElementById('scoreNS').textContent = totNS;
+      document.getElementById('scoreEW').textContent = totEW;
+
+      const lastRound = g.rounds[g.rounds.length - 1];
+      const forceFullNS = lastRound && (lastRound.trickLabelNS === 'Capot' || lastRound.trickLabelNS === 'Capot B' || lastRound.trickLabelNS === 'Générale');
+      const forceFullEW = lastRound && (lastRound.trickLabelEW === 'Capot' || lastRound.trickLabelEW === 'Capot B' || lastRound.trickLabelEW === 'Générale');
+
+      document.getElementById('barNS').style.width = (forceFullNS ? 100 : Math.min(100, Math.round((totNS / g.targetScore) * 100))) + '%';
+      document.getElementById('barEW').style.width = (forceFullEW ? 100 : Math.min(100, Math.round((totEW / g.targetScore) * 100))) + '%';
+    }
+
+    function renderHistoryLists() {
+      document.getElementById('historyCountBadge').textContent = gamesDatabase.length;
+
+      if (gamesDatabase.length === 0) {
+        const emptyHtml = `<div class="p-4 rounded-xl bg-slate-800/50 border border-slate-700 text-xs text-slate-400 text-center">Aucune partie enregistrée pour l'instant. Lancez votre première partie !</div>`;
+        document.getElementById('historyGrid').innerHTML = emptyHtml;
+        document.getElementById('quickResumeList').innerHTML = emptyHtml;
+        return;
+      }
+
+      const cardHTML = g => {
+        const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
+        const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
+        const locked = isGameScoreLocked(g);
+        return `
+          <div class="p-4 rounded-2xl border border-slate-700/80 bg-slate-900/90 flex flex-col justify-between gap-3">
+            <div class="flex items-start justify-between gap-2">
+              <div class="space-y-1">
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-slate-800 text-blue-300">${g.mode}</span>
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded ${
+                    g.syncStatus === 'SYNCED' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+                  }">${g.syncStatus === 'SYNCED' ? '☁️ Synchronisée' : '⛵ Local'}</span>
+                  <button
+                    type="button"
+                    onclick="openRenameModal('${g.id}')"
+                    class="px-2 py-0.5 rounded bg-slate-800 hover:bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-bold transition cursor-pointer"
+                  >
+                    ✏️ Renommer
+                  </button>
+                </div>
+                <h3 class="text-sm font-bold text-white">${g.title}</h3>
+                <p class="text-[11px] text-slate-400">${g.date} • ${g.rounds.length} donne(s) • Cible ${g.targetScore} pts</p>
+              </div>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                locked ? 'bg-emerald-500/20 text-emerald-300' : 'bg-amber-500/20 text-amber-300'
+              }">${locked ? '🔒 Verrouillée' : '✏️ Modifiable'}</span>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-800/70 text-xs">
+              <div>
+                <div class="text-slate-400 text-[10px]">Nord-Sud (${g.players.NORTH} & ${g.players.SOUTH})</div>
+                <div class="text-base font-black text-blue-300">${totNS} pts</div>
+              </div>
+              <div class="text-right">
+                <div class="text-slate-400 text-[10px]">Est-Ouest (${g.players.EAST} & ${g.players.WEST})</div>
+                <div class="text-base font-black text-rose-300">${totEW} pts</div>
+              </div>
+            </div>
+
+            <button onclick="openScoreSheet('${g.id}')" class="w-full py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition cursor-pointer">
+              ${locked ? '📋 Consulter la Feuille de Marque' : '📋 Ouvrir la Feuille de Marque / Modifier'}
+            </button>
+          </div>
+        `;
+      };
+
+      document.getElementById('historyGrid').innerHTML = gamesDatabase.map(cardHTML).join('');
+      document.getElementById('quickResumeList').innerHTML = gamesDatabase.slice(0, 2).map(cardHTML).join('');
+    }
+
+    // --- CALCUL DYNAMIQUE DES STATISTIQUES (ONGLET 3) ---
+    function computeAndRenderDynamicStats() {
+      let completed = 0;
+      let wins = 0;
+      let totalRounds = 0;
+      let taken = 0;
+      let fulfilled = 0;
+      let capots = 0;
+
+      const oppMap = {};
+      const partMap = {};
+
+      gamesDatabase.forEach(g => {
+        const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
+        const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
+        const isComp = g.status === 'COMPLETED' || totNS >= g.targetScore || totEW >= g.targetScore;
+
+        if (isComp && g.rounds.length > 0) {
+          completed++;
+          const nsWon = totNS >= totEW;
+          if (nsWon) wins++;
+
+          const partner = g.players.SOUTH || 'Sud';
+          partMap[partner] = partMap[partner] || { w: 0, l: 0 };
+          if (nsWon) partMap[partner].w++; else partMap[partner].l++;
+
+          [g.players.EAST, g.players.WEST].forEach(op => {
+            if (!op) return;
+            oppMap[op] = oppMap[op] || { w: 0, l: 0 };
+            if (nsWon) oppMap[op].w++; else oppMap[op].l++;
+          });
+        }
+
+        g.rounds.forEach(r => {
+          totalRounds++;
+          if (r.taker === 'NS') {
+            taken++;
+            if (r.isSuccess) fulfilled++;
+          }
+          if (r.trickLabelNS === 'Capot' || r.trickLabelNS === 'Capot B' || r.trickLabelNS === 'Générale') {
+            capots++;
+          }
+        });
+      });
+
+      const winPct = completed > 0 ? Math.round((wins / completed) * 100) : 0;
+      const contractPct = taken > 0 ? Math.round((fulfilled / taken) * 100) : 0;
+
+      document.getElementById('statWinRate').textContent = winPct + '%';
+      document.getElementById('statWinRecord').textContent = `${wins} V — ${completed - wins} D (${completed} terminées)`;
+      document.getElementById('statContractRate').textContent = contractPct + '%';
+      document.getElementById('statTotalRounds').textContent = `${totalRounds} donne(s) jouée(s)`;
+      document.getElementById('statCapotsCount').textContent = `${capots} réalisé(s)`;
+
+      const partners = Object.entries(partMap).sort((a, b) => b[1].w - a[1].w);
+      if (partners.length > 0) {
+        const [pName, pStat] = partners[0];
+        const pct = Math.round((pStat.w / (pStat.w + pStat.l)) * 100);
+        document.getElementById('statBestPartnerName').textContent = pName;
+        document.getElementById('statBestPartnerSub').textContent = `${pct}% de victoires ensemble`;
+        document.getElementById('statDuoName').textContent = pName;
+        document.getElementById('statDuoDetail').textContent = `${pStat.w} V — ${pStat.l} D en paire (${pct}%)`;
+      }
+
+      const preys = Object.entries(oppMap).filter(([, s]) => s.w > 0).sort((a, b) => b[1].w - a[1].w);
+      if (preys.length > 0) {
+        const [oName, oStat] = preys[0];
+        document.getElementById('statPreyName').textContent = oName;
+        document.getElementById('statPreyDetail').textContent = `${oStat.w} Victoire(s) — ${oStat.l} Défaite(s) contre ${oName}`;
+      }
+
+      const nemeses = Object.entries(oppMap).filter(([, s]) => s.l > 0).sort((a, b) => b[1].l - a[1].l);
+      if (nemeses.length > 0) {
+        const [nName, nStat] = nemeses[0];
+        document.getElementById('statNemesisName').textContent = nName;
+        document.getElementById('statNemesisDetail').textContent = `${nStat.l} Défaite(s) — ${nStat.w} Victoire(s) face à ${nName}`;
+      }
+    }
+
+    // --- ONGLET 4 : AUTH SUPABASE, CONFIG & AMIS ---
+    function renderAccountTabUI() {
+      document.getElementById('myProfileUsername').textContent = currentUser.username;
+      document.getElementById('myProfileEmail').textContent = currentUser.email || 'Profil Local (Hors-Ligne)';
+      document.getElementById('myProfileCode').textContent = `Code Ami : ${currentUser.friendCode}`;
+      document.getElementById('authUsernameInput').value = currentUser.username;
+      document.getElementById('authEmailInput').value = currentUser.email || '';
+
+      const authBadge = document.getElementById('authStatusBadge');
+      if (currentUser.accessToken) {
+        authBadge.textContent = '☁️ Connecté Supabase';
+        authBadge.className = 'px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+      } else {
+        authBadge.textContent = '⛵ Profil Local';
+        authBadge.className = 'px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30';
+      }
+
+      document.getElementById('sbUrlInput').value = supabaseConfig.url || '';
+      document.getElementById('sbKeyInput').value = supabaseConfig.anonKey || '';
+
+      const sbBadge = document.getElementById('sbConfigBadge');
+      if (supabaseConfig.url && supabaseConfig.anonKey) {
+        sbBadge.textContent = '✓ Clés configurées';
+        sbBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300';
+      } else {
+        sbBadge.textContent = 'Non configuré';
+        sbBadge.className = 'px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-400';
+      }
+
+      const friendsContainer = document.getElementById('friendsListContainer');
+      friendsContainer.innerHTML = cachedFriends.map(f => `
+        <span class="px-2.5 py-1 rounded-xl bg-slate-800 border border-slate-700 text-xs text-slate-200 font-semibold">
+          👥 ${f.username} <code class="text-blue-300 ml-1">${f.code}</code>
+        </span>
+      `).join('');
+    }
+
+    function saveSupabaseConfig() {
+      supabaseConfig.url = document.getElementById('sbUrlInput').value.trim().replace(/\/+$/, '');
+      supabaseConfig.anonKey = document.getElementById('sbKeyInput').value.trim();
+      savePersistedState();
+      renderAccountTabUI();
+      document.getElementById('sbConfigMsg').textContent = '✓ Configuration Supabase enregistrée dans la mémoire de ce téléphone !';
+      document.getElementById('sbConfigMsg').className = 'text-[11px] text-emerald-400 font-semibold';
+    }
+
+    function copyMagicInviteLink() {
+      saveSupabaseConfig();
+      if (!supabaseConfig.url || !supabaseConfig.anonKey) {
+        document.getElementById('sbConfigMsg').textContent = '⚠️ Renseignez d\'abord Project URL et Publishable Key avant de copier le lien.';
+        document.getElementById('sbConfigMsg').className = 'text-[11px] text-amber-300 font-semibold';
+        return;
+      }
+      const shareUrl = `${window.location.origin}${window.location.pathname}?sb_url=${encodeURIComponent(supabaseConfig.url)}&sb_key=${encodeURIComponent(supabaseConfig.anonKey)}`;
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(shareUrl);
+      }
+      document.getElementById('sbConfigMsg').textContent = '📋 Lien copié ! Envoyez-le à vos potes sur WhatsApp : leur appli sera connectée à votre Supabase en 1 clic.';
+      document.getElementById('sbConfigMsg').className = 'text-[11px] text-purple-300 font-semibold';
+    }
+
+    function buildSupabaseHeaders() {
+      const headers = {
+        'Content-Type': 'application/json',
+        apikey: supabaseConfig.anonKey
+      };
+      if (currentUser.accessToken) {
+        headers.Authorization = `Bearer ${currentUser.accessToken}`;
+      } else if (!supabaseConfig.anonKey.startsWith('sb_publishable_')) {
+        headers.Authorization = `Bearer ${supabaseConfig.anonKey}`;
+      }
+      return headers;
+    }
+
+    async function handleSupabaseAuth(mode) {
+      const username = document.getElementById('authUsernameInput').value.trim() || currentUser.username;
+      const email = document.getElementById('authEmailInput').value.trim();
+      const password = document.getElementById('authPasswordInput').value;
+      const msgEl = document.getElementById('authFeedbackMsg');
+
+      currentUser.username = username;
+      newGameConfig.seats.NORTH.name = username;
+      savePersistedState();
+      renderAccountTabUI();
+      renderSeatsConfigGrid();
+
+      if (!supabaseConfig.url || !supabaseConfig.anonKey) {
+        msgEl.textContent = '✓ Pseudo mis à jour localement. (Ajoutez vos clés Supabase à droite pour créer un compte en ligne).';
+        msgEl.className = 'text-[11px] text-amber-300';
+        return;
+      }
+
+      if (!email || !password) {
+        msgEl.textContent = '⚠️ Renseignez un email et un mot de passe (min. 6 caractères).';
+        msgEl.className = 'text-[11px] text-rose-400';
+        return;
+      }
+
+      msgEl.textContent = '⏳ Connexion à Supabase Auth en cours...';
+      msgEl.className = 'text-[11px] text-blue-300';
+
+      try {
+        const endpoint = mode === 'SIGNUP'
+          ? `${supabaseConfig.url}/auth/v1/signup`
+          : `${supabaseConfig.url}/auth/v1/token?grant_type=password`;
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: buildSupabaseHeaders(),
+          body: JSON.stringify({
+            email,
+            password,
+            data: { username }
+          })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.msg || data.error_description || data.message || 'Erreur Auth');
+        }
+
+        const userObj = data.user || data;
+        currentUser.id = userObj.id || currentUser.id;
+        currentUser.email = email;
+        currentUser.accessToken = data.access_token || null;
+
+        // Récupérer le friend_code depuis public.profiles
+        if (currentUser.id) {
+          const profRes = await fetch(
+            `${supabaseConfig.url}/rest/v1/profiles?id=eq.${encodeURIComponent(currentUser.id)}&select=*`,
+            { headers: buildSupabaseHeaders() }
+          );
+          if (profRes.ok) {
+            const rows = await profRes.json();
+            if (rows.length > 0) {
+              currentUser.username = rows[0].username || username;
+              currentUser.friendCode = rows[0].friend_code || currentUser.friendCode;
+            }
+          }
+        }
+
+        newGameConfig.seats.NORTH.name = currentUser.username;
+        newGameConfig.seats.NORTH.badge = `✓ ${currentUser.friendCode}`;
+        savePersistedState();
+        renderAccountTabUI();
+        renderSeatsConfigGrid();
+
+        msgEl.textContent = `✓ Connecté en tant que ${currentUser.username} (${currentUser.friendCode}) !`;
+        msgEl.className = 'text-[11px] text-emerald-400 font-bold';
+
+        await syncWithSupabaseNow();
+      } catch (err) {
+        msgEl.textContent = `❌ ${err.message}`;
+        msgEl.className = 'text-[11px] text-rose-400';
+      }
+    }
+
+    async function addFriendByCodeOrName() {
+      const q = document.getElementById('addFriendQueryInput').value.trim();
+      if (!q) return;
+
+      if (isEffectivelyOnline() && supabaseConfig.url && supabaseConfig.anonKey) {
+        try {
+          const encoded = encodeURIComponent(q);
+          const res = await fetch(
+            `${supabaseConfig.url}/rest/v1/profiles?or=(friend_code.ilike.${encoded},username.ilike.${encoded})&limit=1`,
+            { headers: buildSupabaseHeaders() }
+          );
+          if (res.ok) {
+            const rows = await res.json();
+            if (rows.length > 0) {
+              cachedFriends.unshift({ username: rows[0].username, code: rows[0].friend_code });
+              document.getElementById('addFriendQueryInput').value = '';
+              savePersistedState();
+              renderAccountTabUI();
+              renderSeatsConfigGrid();
+              return;
+            }
+          }
+        } catch (_e) {}
+      }
+
+      // Ajout local hors-ligne si non trouvé ou sans réseau
+      const code = q.toUpperCase().startsWith('BLT-') ? q.toUpperCase() : 'BLT-' + Math.floor(1000 + Math.random() * 9000);
+      cachedFriends.unshift({ username: q, code });
+      document.getElementById('addFriendQueryInput').value = '';
+      savePersistedState();
+      renderAccountTabUI();
+      renderSeatsConfigGrid();
+    }
+
+    async function syncWithSupabaseNow() {
+      if (!isEffectivelyOnline() || !supabaseConfig.url || !supabaseConfig.anonKey || !currentUser.accessToken) {
+        updateNetworkUI();
+        return;
+      }
+
+      const dirtyGames = gamesDatabase.filter(g => g.syncStatus !== 'SYNCED');
+      if (dirtyGames.length === 0) {
+        updateNetworkUI();
+        return;
+      }
+
+      const mutations = [];
+      dirtyGames.forEach(g => {
+        const totNS = g.rounds.reduce((a, b) => a + b.scoreNS, 0);
+        const totEW = g.rounds.reduce((a, b) => a + b.scoreEW, 0);
+        const hlc = `${Date.now()}:0001:pwa`;
+        mutations.push({
+          mutation_id: generateUuid(),
+          entity_type: 'GAME',
+          entity_id: g.id,
+          operation: 'UPSERT',
+          client_hlc: hlc,
+          payload: {
+            title: g.title,
+            mode: g.mode,
+            status: g.status,
+            target_score: g.targetScore,
+            score_ns: totNS,
+            score_ew: totEW,
+            winner_team: g.status === 'COMPLETED' ? (totNS >= totEW ? 'NS' : 'EW') : null,
+            started_at: g.startedAtIso || new Date().toISOString(),
+            ended_at: g.status === 'COMPLETED' ? new Date().toISOString() : null
+          }
+        });
+      });
+
+      try {
+        const res = await fetch(`${supabaseConfig.url}/rest/v1/rpc/sync_push_batch`, {
+          method: 'POST',
+          headers: buildSupabaseHeaders(),
+          body: JSON.stringify({ mutations })
+        });
+        if (res.ok) {
+          dirtyGames.forEach(g => { g.syncStatus = 'SYNCED'; });
+          savePersistedState();
+          renderActiveGame();
+          renderHistoryLists();
+        }
+      } catch (_e) {}
+      updateNetworkUI();
+    }
+
+    function toggleSimulatedOffline() {
+      simulatedOffline = !simulatedOffline;
+      updateNetworkUI();
+      if (isEffectivelyOnline()) {
+        syncWithSupabaseNow();
+      }
+    }
+
+    function updateNetworkUI() {
+      const badge = document.getElementById('networkBadge');
+      const dot = document.getElementById('networkDot');
+      const text = document.getElementById('networkText');
+      const btn = document.getElementById('btnToggleNet');
+      const dirtyCount = getDirtyGamesCount();
+
+      if (isEffectivelyOnline()) {
+        badge.className = 'flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-400';
+        text.textContent = dirtyCount > 0 ? `En Ligne (${dirtyCount} locale(s))` : 'En Ligne • Prêt';
+        btn.textContent = 'Simuler Bateau (Hors-Ligne)';
+        btn.className = 'px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition cursor-pointer';
+      } else {
+        badge.className = 'flex items-center gap-2 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/40';
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        text.textContent = `⛵ Hors-Ligne (${dirtyCount} en attente)`;
+        btn.textContent = 'Repasser En Ligne';
+        btn.className = 'px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white transition cursor-pointer';
+      }
+    }
+
+    // Écouteurs réseau natifs du téléphone + enregistrement Service Worker PWA
+    window.addEventListener('online', () => {
+      updateNetworkUI();
+      syncWithSupabaseNow();
+    });
+    window.addEventListener('offline', () => {
+      updateNetworkUI();
+    });
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').then(() => {
+          const b = document.getElementById('pwaStatusBadge');
+          if (b) b.textContent = '📲 PWA Hors-Ligne Installée';
+        }).catch(() => {});
+      });
+    }
+
+    // Initialisation au démarrage
+    loadPersistedState();
+    renderSeatsConfigGrid();
+    refreshInitialDealerButtons();
+    renderContractGrid();
+    updateTrickBarUI();
+    renderHistoryLists();
+    computeAndRenderDynamicStats();
+    renderAccountTabUI();
+    updateDefaultTitlePreview();
+    updateNetworkUI();
+  </script>
+</body>
+</html>
