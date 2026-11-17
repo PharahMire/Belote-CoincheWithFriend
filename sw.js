@@ -1,9 +1,8 @@
-const CACHE_NAME = 'belote-coinche-pwa-v12';
+const CACHE_NAME = 'belote-coinche-pwa-v13';
 const APP_SHELL_ASSETS = [
   './',
   './index.html',
-  './manifest.json',
-  'https://cdn.tailwindcss.com'
+  './manifest.json'
 ];
 
 self.addEventListener('install', (event) => {
@@ -11,7 +10,10 @@ self.addEventListener('install', (event) => {
     caches.open(CACHE_NAME).then(async (cache) => {
       for (const url of APP_SHELL_ASSETS) {
         try {
-          await cache.add(url);
+          const res = await fetch(url, { cache: 'no-cache' });
+          if (res && res.ok) {
+            await cache.put(url, res);
+          }
         } catch (_err) {}
       }
     })
@@ -32,8 +34,8 @@ self.addEventListener('activate', (event) => {
   self.clients.claim();
 });
 
-// Network-First pour index.html afin d'avoir toujours la dernière version quand on est en ligne,
-// et fallback immédiat sur le cache quand on est hors-ligne (Mode Avion / Bateau).
+// Network-First avec timeout court (3.5s) et fallback garanti sur le cache local (Mode Avion / Bateau).
+// Tout le CSS (Tailwind compilé) et le JS sont désormais intégrés directement dans index.html.
 self.addEventListener('fetch', (event) => {
   const reqUrl = event.request.url;
 
@@ -45,19 +47,43 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const isNavigation =
+    event.request.mode === 'navigate' ||
+    event.request.destination === 'document';
+
   event.respondWith(
-    fetch(event.request, { cache: 'no-cache' })
-      .then((networkResponse) => {
+    (async () => {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3500);
+        const networkResponse = await fetch(event.request, {
+          cache: 'no-cache',
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
         if (networkResponse && networkResponse.status === 200) {
-          const cloned = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, cloned);
-          });
+          const cache = await caches.open(CACHE_NAME);
+          await cache.put(event.request, networkResponse.clone());
+          if (isNavigation) {
+            await cache.put('./index.html', networkResponse.clone());
+            await cache.put('./', networkResponse.clone());
+          }
         }
         return networkResponse;
-      })
-      .catch(() =>
-        caches.match(event.request).then((cached) => cached || caches.match('./index.html'))
-      )
+      } catch (_err) {
+        const cachedExact = await caches.match(event.request, { ignoreSearch: true });
+        if (cachedExact) return cachedExact;
+
+        if (isNavigation) {
+          const cachedIndex =
+            (await caches.match('./index.html', { ignoreSearch: true })) ||
+            (await caches.match('./', { ignoreSearch: true }));
+          if (cachedIndex) return cachedIndex;
+        }
+
+        return new Response('Hors ligne', { status: 503, statusText: 'Offline' });
+      }
+    })()
   );
 });
